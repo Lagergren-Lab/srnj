@@ -1,0 +1,23 @@
+executor: slurm
+jobs: 60
+cores: 960
+
+use-conda: true
+conda-prefix: "/proj/sc_ml/shared/envs"
+
+set-threads:
+  run_sconce2: 8
+  run_medicc2: 8
+
+set-resources:
+  run_sconce2:
+    runtime: 1000
+    mem_mb: 24000
+  run_medicc2:
+    runtime: 1000
+    mem_mb: 24000
+
+default-resources:
+  mem_mb_per_cpu: 4000
+  runtime: 30
+  slurm_account: "naiss2025-22-1610"

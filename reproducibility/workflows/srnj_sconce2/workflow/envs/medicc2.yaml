@@ -1,0 +1,6 @@
+name: medicc2
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - medicc2

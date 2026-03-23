@@ -1,0 +1,10 @@
+# SCONCE2 paths (defaults to external/sconce2/ in project root if not specified)
+# Uncomment and modify these lines if you have SCONCE2 installed elsewhere:
+# SCONCE2_EXEC: "/path/to/your/sconce2/sconce2"
+# SCONCE2_SCRIPTS: "/path/to/your/sconce2/scripts"
+
+RESULTS_DIR: "output" # change this if you want results in a different directory
+REPEATS: 20
+N_CELLS: [20, 50, 100]
+SCONCE2_K: 10
+
