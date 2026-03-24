@@ -1,133 +1,141 @@
-# SparseRNJ: Sparse Neighbor Joining for Phylogenetic Tree Reconstruction
+# Sparse Rooted Neighbor Joining (SparseRNJ)
+> code for reproducing the results of the paper "Scalable and robust phylogenetic tree
+> reconstruction from copy number data with Sparse Rooted Neighbor Joining" by Zampinetti V. et al.
 
-Clean, dependency-managed implementation of Sparse Neighbor Joining algorithms for single-cell phylogenetic tree reconstruction.
+## Experiment with in-house CN data
 
-## 🚀 Quick Start
+This experiment can be run executing the script in `reproducibility/experiments/sparse_nj_accuracy.py`
+which requires the Python packages listed in `environment.yml` and
+the binaries from the software packages [tqDist](https://www.birc.au.dk/~cstorm/software/tqdist/)
+and [Booster](https://github.com/evolbioinfo/booster).
+In particular, the script will assume that the following binaries are available in the system PATH (tested version):
+```
+- triplet_dist
+- quartet_dist
+- booster_linux64 (v0.1.2)
+```
+### Installation
 
-### Prerequisites
+First install tqDist building from source as described in the [documentation](https://www.birc.au.dk/~cstorm/software/tqdist/).
+Download the binary for Booster v0.1.2 from the [releases page](https://github.com/evolbioinfo/booster/releases).
+Add the required binaries to your system PATH.
 ```bash
-# Create and activate environment
+# add binaries to PATH
+export PATH="/path/to/tqdist/bin/:$PATH"
+export PATH="/path/to/booster_linux64:$PATH"
+# create and activate environment
 conda env create -f environment.yml
 conda activate srnj
 
-# Verify installation
+# verify installation
 ./scripts/check_deps.sh
 ```
-
-### ⚡ Demo 1: Algorithm Accuracy (30 seconds)
+### Execution
 ```bash
-cd reproducibility/experiments
-python sparse_nj_accuracy.py --demo
+python reproducibility/experiments/sparse_nj_accuracy.py --demo
 ```
-Tests SparseRNJ against standard methods with synthetic data. Generates performance plots and statistical analysis.
+The `--demo` flag runs a quick validation with reduced parameters,
+while omitting it will execute the full evaluation across all parameter ranges (> 45').
 
-### 🔬 Demo 2: Complete Workflow (2-5 minutes)  
+## Experiment with CNAsim data
+
+This experiment uses [Snakemake](https://snakemake.readthedocs.io/en/stable/)
+to automate the workflow from data simulation with CNAsim to tree reconstruction and evaluation.
+It also depends on [SCONCE2](https://github.com/NielsenBerkeleyLab/sconce2), [MEDICC2](https://pypi.org/project/medicc2/)
+and [CNAsim](https://github.com/samsonweiner/CNAsim).
+While SCONCE2 needs to be manually installed, MEDICC2, CNAsim and all other
+pipeline dependencies are installed automatically in the Snakemake workflow
+in dedicated conda environments.
+NOTE: the pipeline also relies on two R scripts from SCONCE2 repository
+that are used to prepare the input data, those scripts are downloaded and placed
+in the correct location by the `setup_sconce2.sh` script, but SCONCE2 itself is not 
+installed as part of the workflow setup, please follow the [original
+instructions](https://github.com/NielsenBerkeleyLab/sconce2?tab=readme-ov-file#installation-instructions)
+to install it.
+
+### Installation
 ```bash
-# Setup SCONCE2 (downloads repository only)
+# make an empty environment and install snakemake
+conda create -n snakemake_env -c conda-forge -c bioconda snakemake
+conda activate snakemake_env
+# setup SCONCE2 (will download the repository without installing SCONCE2)
 ./scripts/setup_sconce2.sh
-
-# Run workflow with demo configuration
+# install SCONCE2 dependencies (BOOST, GSL, ...)
+# then install sconce2 e.g. with:
+#    cd external/sconce2; make; export PATH="$(pwd):$PATH"; cd ../..
+```
+### Execution
+```bash
+# run workflow with demo configuration
 cd reproducibility/workflows/srnj_sconce2
-snakemake --configfile config/demo.yaml --use-conda --cores 2
+snakemake --configfile config/demo.yaml --use-conda --cores 2 # demo configuration with reduced parameters for quick validation
+# run workflow with full configuration on HPC with slurm
+snakemake --profile workflow/profile --use-conda
 ```
-Full phylogenetic reconstruction pipeline from simulation to evaluation.
 
-## 📦 Installation
+## Real Data Experiment
 
-### Python Environment
+Data has been downloaded from the original 10x Genomics website,
+binned into 5Mb bins, then merged with CHISEL CN data. We provide
+the preprocessed data in `data/merged_5M_N500.h5ad` which contains
+the read-counts, CN and cell/bin annotations for the subset of cells
+(N=499) chosen for the analysis as described in the Experiments
+section of the paper, plus (N=357) normal cells from the same region
+that are required by SCONCE2.
+
+To reproduce the analysis, run MEDICC2 on the CN data (extracted as tsv for
+convenience and available in the `data` folder)
 ```bash
-conda env create -f environment.yml
-conda activate srnj
+medicc2 ./data/merged_5M_N500_E_tumoronly.tsv \
+    ./output/breast10x/medicc2_output/ \
+    -j 32
+# Note: adjust -j parameter according to your system's available cores
 ```
-
-**Included packages:** `dendropy`, `networkx`, `numpy`, `scipy`, `scikit-bio`, `fastme`
-
-### External Binaries
-
-Required for tree distance computation:
-
-| Binary | Purpose | Installation |
-|--------|---------|--------------|
-| **tqDist** | Quartet/triplet distances | [Download](https://www.birc.au.dk/~cstorm/software/tqdist/) → build → add to PATH |
-| **booster** | Transfer distances | [Download](https://github.com/evolbioinfo/booster) → build → rename to `booster_linux64`/`booster_macos64` |
-| **SCONCE2** | Copy number analysis (optional) | `./scripts/setup_sconce2.sh` → manual build |
-
-**Verification:**
+and SCONCE2 on the read-count data
 ```bash
-./scripts/check_deps.sh  # Shows installation status and provides guidance
+# prepare input with the provided script
+python ./reproducibility/workflows/srnj_sconce2/workflow/scripts/prepare_sconce2_input.py --input ./data/merged_5M_N500_E.h5ad --output ./output/breast10x/sconce2_input/ --normal-obs-name normal --script-path ./external/sconce2/scripts/ --missing-data remove
+sconce2 -d ./output/breast10x/sconce2_input/healthyAvg.bed \
+    -t ./output/breast10x/sconce2_input/healthyAvg.bed \
+    --meanVarCoefFile ./output/breast10x/sconce2_input/meanVarCoefFile \
+    -k 8 \
+    -o ./output/breast10x/sconce2_output/model \
+    --saveSconce \
+    --summarizeAll \
+    -j 32 \
+    --sconceEstimatesPath ./output/breast10x/sconce2_output/ \
+    --pairedEstimatesPath ./output/breast10x/sconce2_output/ \
+    > ./output/breast10x/sconce2_output/sconce2.log 2> ./output/breast10x/sconce2_output/sconce2.err
+# Note: adjust -j parameter according to your system's available cores
 ```
-
-## 🔬 Experiments
-
-### Synthetic Data Benchmarking
+Then run the respective analysis scripts for the two methods to obtain
+the final trees and evaluation metrics (requires CHISEL analysis data which is
+downloaded and setup with the `setup_chisel_data.sh` script)
 ```bash
-cd reproducibility/experiments
-python sparse_nj_accuracy.py     # Full evaluation across parameter ranges
-python sparse_nj_accuracy.py --demo  # Quick validation (reduced parameters)
+./scripts/setup_chisel_data.sh
+python ./reproducibility/experiments/breast10x/breast_data_medicc2.py
+python ./reproducibility/experiments/breast10x/breast_data_sconce2.py 
 ```
 
-### Real Data Analysis
-```bash
-cd reproducibility/experiments/breast10x
-python breast_data_medicc2.py    # MEDICC2-based analysis
-python breast_data_sconce2.py    # SCONCE2-based analysis
-```
-
-### Snakemake Pipeline
-```bash
-cd reproducibility/workflows/srnj_sconce2
-snakemake --use-conda --cores 4  # Full workflow (default config)
-snakemake --configfile config/demo.yaml --use-conda --cores 2  # Demo mode
-```
-
-## 🧬 Core Features
-
-- **Algorithm**: Sparse Neighbor Joining with optimized distance computations
-- **Benchmarking**: Comparisons with NJ, DLCA-NJ, ANJ, FastME algorithms  
-- **Metrics**: Robinson-Foulds, quartet distance, triplet distance, transfer distance
-- **Workflows**: End-to-end pipelines from simulation to phylogenetic evaluation
-- **Dependencies**: Clean conda environment with minimal external requirements
-
-## 📊 Output
-
-- **Performance plots**: Algorithm comparison visualizations
-- **Distance matrices**: Pairwise phylogenetic distances
-- **Statistical analysis**: Significance testing and evaluation metrics
-- **Phylogenetic trees**: Reconstructed trees in Newick format
-
-## 🧪 Testing
-
-```bash
-python -m pytest tests/ -v  # Run test suite
-```
-
-All core functionality is tested with 21 test cases covering tree parsing, algorithms, and data structures.
-
-## 🏗️ Architecture
+## Repository Structure
 
 ```
 src/
-├── sparsernj/          # Core SparseRNJ implementation
-├── utils/              # Tree utilities and algorithms
-└── utils/evaluation/   # Benchmarking and metrics
+├── sparsernj/          # core SparseRNJ implementation
+├── utils/              # tree utilities and algorithms
+└── utils/evaluation/   # benchmarking and metrics
 
 reproducibility/
-├── experiments/        # Standalone evaluation scripts  
-└── workflows/          # Snakemake pipelines
+├── experiments/        # synthetic and real data experiments scripts
+└── workflows/          # snakemake pipeline for experiment with SCONCE2 and MEDICC2 (CNAsim data)
 
-scripts/                # Setup and utility scripts
-tests/                  # Comprehensive test suite
+scripts/                # setup and utility scripts
+tests/                  # unit tests
+data/                   # preprocessed data for real data experiment
 ```
 
-## 📝 Citation
+# Contact
 
-If you use SparseRNJ in your research, please cite:
+For questions or issues regarding the code, 
+please open an issue in this repository.
 
-```bibtex
-@article{sparsernj2024,
-  title={SparseRNJ: Efficient Phylogenetic Tree Reconstruction for Single-Cell Analysis},
-  author={[Authors]},
-  journal={[Journal]},
-  year={2024}
-}
-```

@@ -147,7 +147,7 @@ def plot_time_results(file_path, out_path=None):
 
 def run_experiment(demo=False) -> (str, str):
     # returns the filepath of the stats csv file
-    outdir = "./output/"
+    outdir = "./output/simul_experiment/"
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     stats_file_path = outdir + timestamp + "_sparse_nj_quartet_distance_stats.csv"
     times_file_path = outdir + timestamp + "_sparse_rnj_time_estimates.csv"

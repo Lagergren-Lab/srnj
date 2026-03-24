@@ -22,12 +22,12 @@ from utils.algorithms.neighbor_joining import dlca_nj, std_nj_root
 from utils.evaluation.benchmarking import read_chisel_mutations, read_chisel_clones, get_medicc2_dist
 from utils.tree_utils import nxtree_to_newick
 
-medicc2_dist_path = "/proj/sc_ml/shared/s0_10x/5M/medicc2_N500_out/distances.npz"
+medicc2_dist_path = "./output/breast_x10/medicc2_out/distances.npz"
 assert os.path.exists(medicc2_dist_path), f"Distance matrix file not found at {medicc2_dist_path}"
-chisel_mutations_path = "/proj/sc_ml/users/x_vitza/chisel-data/patientS0/snvs/cellmutations.tsv.gz"
-chisel_clones_path = "/proj/sc_ml/users/x_vitza/chisel-data/patientS0/clones/sectionE/mapping.tsv.gz"
-out_csv_path = "/home/x_vitza/Cellmates/output/reproducibility/experiments/breast_data_medicc2/results.csv"
-out_trees_dir = "/home/x_vitza/Cellmates/output/reproducibility/experiments/breast_data_medicc22/trees"
+chisel_mutations_path = "./external/chisel-data/patientS0/snvs/cellmutations.tsv.gz"
+chisel_clones_path = "./external/chisel-data/patientS0/clones/sectionE/mapping.tsv.gz"
+out_csv_path = "./output/breast_x10/medicc2_results.csv"
+out_trees_dir = "./output/breast_x10/medicc2_trees"
 
 def f1_score_clades(nxtree, clone_series: pd.Series) -> float:
     # Get clades as sets of barcodes
