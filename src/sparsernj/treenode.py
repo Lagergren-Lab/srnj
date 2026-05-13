@@ -156,7 +156,7 @@ class Tree:
         # end of recursion
         if node.is_tip:
             node.set_tips_count(1)
-            node.set_subtree_leaves([node.label])
+            node.set_subtree_leaves({node.label})
             # barriers do not exist when counting tips
             return node.get_tips_count(), node.get_subtree_leaves()
 
