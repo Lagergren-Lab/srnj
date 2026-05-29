@@ -79,13 +79,13 @@ def _load_cnasim2adata():
     return mod
 
 
-def _run_cnasim(out_dir: Path, n_cells: int) -> Path:
+def _run_cnasim(out_dir: Path, n_cells: int, cnasim_exec: str = "cnasim") -> Path:
     cnasim_tmp = out_dir / "cnasim_tmp"
     cnasim_tmp.mkdir(parents=True, exist_ok=True)
     n_total = round(n_cells / (1.0 - NORMAL_FRACTION))
     chrom_length = int(N_BINS * BIN_LENGTH / N_CHROM)
     cmd = [
-        "cnasim", "-m", "1", "--use-uniform-coverage",
+        cnasim_exec, "-m", "1", "--use-uniform-coverage",
         "-n", str(n_total), "-c", str(N_CLONES), "-p1", str(LAMBDA_PARAM),
         "-o", str(cnasim_tmp), "-N", str(N_CHROM), "-L", str(chrom_length),
         "-n1", str(NORMAL_FRACTION), "-B", str(BIN_LENGTH),
@@ -163,6 +163,7 @@ def run_experiment(
     out_dir: Path,
     skip_cnasim: bool = False,
     k=None,
+    cnasim_exec: str = "cnasim",
 ):
     out_dir.mkdir(parents=True, exist_ok=True)
     timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -190,7 +191,7 @@ def run_experiment(
             print(f"[n={n_cells}] Reusing existing AnnData at {h5ad_path}.")
         else:
             print(f"[n={n_cells}] Running CNAsim...")
-            cnasim_dir = _run_cnasim(out_dir / f"cnasim_n{n_cells}", n_cells)
+            cnasim_dir = _run_cnasim(out_dir / f"cnasim_n{n_cells}", n_cells, cnasim_exec=cnasim_exec)
             print(f"[n={n_cells}] Loading AnnData...")
             adata = cnasim2adata.load_cnasim_output_files(str(cnasim_dir), normalize_counts=True)
             adata.write(h5ad_path)
@@ -310,6 +311,8 @@ def parse_args():
                    help="Reuse existing <out-dir>/input_n<N>.h5ad instead of running CNAsim.")
     p.add_argument("--k", type=int, default=None,
                    help="Orienting leaves per side for built-in SRNJ strategies (default: log2 n).")
+    p.add_argument("--cnasim-exec", type=str, default="cnasim",
+                   help="Path to the cnasim binary (default: 'cnasim', found in PATH).")
     return p.parse_args()
 
 
@@ -326,5 +329,6 @@ if __name__ == "__main__":
         seeds=seeds,
         out_dir=args.out_dir.resolve(),
         skip_cnasim=args.skip_cnasim,
+        cnasim_exec=args.cnasim_exec,
         k=args.k,
     )
