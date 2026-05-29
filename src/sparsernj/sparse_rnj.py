@@ -8,7 +8,6 @@ try:
 except ImportError:
     # Fallback for direct script execution
     from utils.algorithms.neighbor_joining import dlca_nj, dlca_lm
-from . import sparse_nj as snj
 from . import treenode
 from . import distance_provider
 
@@ -117,6 +116,5 @@ def sparse_rnj(dist_matrix: distance_provider.DistanceProvider, initial_taxa: li
         tree = insert_taxon_into_tree(tree, taxon, dist_matrix, k=k, ort_strategy=ort_strategy)
         tree.expand()  # reset barriers and update tips/leaves
 
-    # print(tree)
     nx_tree = tree.to_networkx()
     return nx_tree

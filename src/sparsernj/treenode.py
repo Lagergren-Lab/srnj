@@ -238,7 +238,6 @@ class Tree:
     def _compute_centroid(self):
         """Compute centroid node of the tree."""
         self._total_tips, self._total_leaves = self._compute_tips_dfs(self.root) # include root
-        # print(f"Total tips: {self._total_tips} leaves: {self._total_leaves}")
         return self._walk_to_centroid(self.root.neighbors[0], self.root)
 
 
@@ -341,7 +340,6 @@ class UTree:
         if self._dirty or self._centroid is None:
             self._centroid = self._compute_centroid()
             self._dirty = False
-        # print(f"Found centroid: {self._centroid}")
         return self._centroid
 
     def expand(self):
@@ -407,10 +405,6 @@ class UTree:
             leaves_labels = random.sample(list(subtree_leaves), k=min(k, len(subtree_leaves)))
             leaves.append(leaves_labels)
             nbrs.append(nbr)
-        # print the tree edges
-        # print("TREE EDGES:")
-        # print([(u.id,v.id) for u,v in self.bfs_edges(centroid)])
-        # print(f"centroid: {centroid} neighbors: {nbrs}")
         assert len(nbrs) == 3, f"Centroid must have three neighbors: nbrs={nbrs}"
         assert sum(len(l) for l in leaves) >= 3, "Centroid must have three neighbors, each with at least one leaf"
         return tuple(leaves), tuple(nbrs)

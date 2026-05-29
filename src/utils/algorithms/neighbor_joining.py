@@ -722,7 +722,6 @@ def dlca_lm(lca_dm: np.ndarray, adm: np.ndarray | None = None) -> np.ndarray:
         idxs[j] = idxs[n_1]
         n -= 1
     # final merge to keep track of root distance
-    # print("Final LCA DM:\n", lca_dm)
     lm[N - 1] = idxs[0], 2 * N - 1, lca_dm_[0, 0], 0
     return lm
 
@@ -821,7 +820,6 @@ def neighbor_joining(dist_matrix, taxon_namespace):
     dpy_tree = Tree.get(data=str(nj_tree), schema="newick", taxon_namespace=taxon_namespace)
     label_tree(dpy_tree, method='int')
     dpy_tree.is_rooted = True
-    # print("NJ LEAVES ", [(l.taxon.label, l.label) for l in dpy_tree.leaf_nodes()])
     return dpy_tree
 
 
@@ -862,7 +860,6 @@ def fast_me(dist_matrix, taxon_namespace, suffix=""):
     dpy_tree = Tree.get(data=newick_str, schema="newick", taxon_namespace=taxon_namespace)
     label_tree(dpy_tree, method='int')
     dpy_tree.is_rooted = True
-    # print("FASTME LEAVES ", [(l.taxon.label, l.label) for l in dpy_tree.leaf_nodes()])
     # clean up
     os.remove(file_name)
     return dpy_tree

@@ -91,7 +91,8 @@ class DistanceProvider:
         """
         # if one taxa is not in self.taxa, we treat it as the root
         extra = len(set(taxa).difference(set(self.taxa)))
-        assert extra <= 1, f"Some taxa (n={extra})do not match provided taxa"
+        if extra > 1:
+            raise ValueError(f"Some taxa (n={extra}) do not match provided taxa")
         taxa_no_root = taxa
         root_idx = None
         if extra == 1:

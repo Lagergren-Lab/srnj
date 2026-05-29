@@ -11,7 +11,7 @@ import random
 import networkx as nx
 import numpy as np
 
-from . import distance_provider as snj
+from . import distance_provider as dp
 from . import treenode
 try:
     from ..utils.algorithms.neighbor_joining import std_nj_lm, lm_to_tree
@@ -20,7 +20,7 @@ except ImportError:
     from utils.algorithms.neighbor_joining import std_nj_lm, lm_to_tree
 
 
-def select_ort_leaves(leavesA, leavesB, leavesC, taxon, dp: snj.DistanceProvider) -> tuple[str, str, str]:
+def select_ort_leaves(leavesA, leavesB, leavesC, taxon, dp: dp.DistanceProvider) -> tuple[str, str, str]:
     nA = len(leavesA)
     nB = len(leavesB)
     D = dp.get_dist_matrix(leavesA + leavesB + leavesC + [taxon])
@@ -34,7 +34,7 @@ def select_ort_leaves(leavesA, leavesB, leavesC, taxon, dp: snj.DistanceProvider
     return ortA, ortB, ortC
 
 
-def insert_taxon_into_tree(tree: treenode.UTree, taxon, dp: snj.DistanceProvider, k: int = 1) -> treenode.UTree:
+def insert_taxon_into_tree(tree: treenode.UTree, taxon, dp: dp.DistanceProvider, k: int = 1) -> treenode.UTree:
     """
     Insert taxon into the tree at the appropriate position. Returns the updated tree.
     K is the number of orienting leaves to consider on each side of the centroid, for which to compute the LCA distance matrix.
@@ -77,7 +77,7 @@ def _relabel_initial_tree(tree, taxa):
 
 
 def sparse_nj(
-    dist_provider: snj.DistanceProvider,
+    dist_provider: dp.DistanceProvider,
     initial_taxa: Optional[List] = None,
     insertion_order: Optional[List] = None,
     root_label: Optional[str] = None,
@@ -105,7 +105,6 @@ def sparse_nj(
         root_label = 'root'
     all_taxa = dist_provider.taxa + [root_label]
     n = len(all_taxa)
-    # print(f"Building tree with {n} taxa (including root)")
     if k is None:
         # set k to log n as default which keeps the overall complexity at O(n log n)
         k = max(1, round(np.log2(n)))
@@ -118,21 +117,15 @@ def sparse_nj(
     else:
         # remove any taxa from insertion_order that are in initial_taxa
         insertion_order = [t for t in insertion_order if t not in initial_taxa]
-    # print(f"Initial taxa: {initial_taxa}")
-    # print(f"Insertion order: {insertion_order}")
 
     # Build initial tree from first taxa
     dm = dist_provider.get_dist_matrix(initial_taxa)
     tree_nx = lm_to_tree(std_nj_lm(dm), edge_attr='weight', rooted=False)
     tree_nx = _relabel_initial_tree(tree_nx, initial_taxa)
-
-    # print('Initial tree built with taxa:', initial_taxa)
-    # print(nx.write_network_text(tree_nx))
     tree = treenode.UTree.from_networkx(tree_nx)
 
     # Insert remaining taxa
     for taxon in insertion_order:
-        # print(f"Inserting taxon: {taxon}")
         tree = insert_taxon_into_tree(tree, taxon, dist_provider, k=k)
         tree.expand()  # reset barriers and update tips/leaves
 
