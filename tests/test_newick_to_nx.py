@@ -10,7 +10,7 @@ import os
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from utils.tree_utils import newick_to_nx
+from sparsernj.utils.tree_utils import newick_to_nx
 
 
 class TestNewickToNx:

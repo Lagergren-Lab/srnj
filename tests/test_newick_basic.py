@@ -22,7 +22,7 @@ def test_newick_parsing():
     ]
     
     try:
-        from utils.tree_utils import newick_to_nx
+        from sparsernj.utils.tree_utils import newick_to_nx
         import networkx as nx
         
         for i, nwk in enumerate(test_newicks):

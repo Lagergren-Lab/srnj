@@ -18,9 +18,9 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from sparsernj import FixedDistanceProvider, sparse_nj, sparse_rnj
-from utils.algorithms.neighbor_joining import dlca_nj, std_nj_root
-from utils.evaluation.benchmarking import read_chisel_mutations, get_sconce2_split_dist, read_chisel_clones
-from utils.tree_utils import nxtree_to_newick
+from sparsernj.utils.algorithms.neighbor_joining import dlca_nj, std_nj_root
+from sparsernj.utils.evaluation.benchmarking import read_chisel_mutations, get_sconce2_split_dist, read_chisel_clones
+from sparsernj.utils.tree_utils import nxtree_to_newick
 
 sconce2_hmm_path = "./output/breast_x10/sconce2_out/model.hmm"
 chisel_mutations_path = "./external/chisel-data/patientS0/snvs/cellmutations.tsv.gz"

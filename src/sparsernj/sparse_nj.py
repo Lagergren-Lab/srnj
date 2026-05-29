@@ -14,10 +14,10 @@ import numpy as np
 from . import distance_provider as dp
 from . import treenode
 try:
-    from ..utils.algorithms.neighbor_joining import std_nj_lm, lm_to_tree
+    from .utils.algorithms.neighbor_joining import std_nj_lm, lm_to_tree
 except ImportError:
-    # Fallback for direct script execution
-    from utils.algorithms.neighbor_joining import std_nj_lm, lm_to_tree
+    # Fallback when running as a script with sys.path.insert(0, 'src')
+    from sparsernj.utils.algorithms.neighbor_joining import std_nj_lm, lm_to_tree
 
 
 def select_ort_leaves(leavesA, leavesB, leavesC, taxon, dp: dp.DistanceProvider) -> tuple[str, str, str]:

@@ -13,10 +13,10 @@ import numpy as np
 import dendropy as dpy
 
 from sparsernj import sparse_rnj, sparse_nj, get_lca_from_pairwise, get_pairwise_from_lca
-from utils.evaluation.benchmarking import get_sconce2_split_dist, get_medicc2_dist
-from utils.algorithms.neighbor_joining import dlca_nj, anj, std_nj_root
+from sparsernj.utils.evaluation.benchmarking import get_sconce2_split_dist, get_medicc2_dist
+from sparsernj.utils.algorithms.neighbor_joining import dlca_nj, anj, std_nj_root
 from sparsernj.distance_provider import FixedDistanceProvider
-from utils.tree_utils import convert_networkx_to_dendropy, normalized_quartet_distance, \
+from sparsernj.utils.tree_utils import convert_networkx_to_dendropy, normalized_quartet_distance, \
     normalized_rf_distance, transfer_distance, normalized_triplet_distance, normalized_root_split_distance
 
 

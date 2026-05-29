@@ -4,10 +4,10 @@ import networkx as nx
 import numpy as np
 
 try:
-    from ..utils.algorithms.neighbor_joining import dlca_nj, dlca_lm
+    from .utils.algorithms.neighbor_joining import dlca_nj, dlca_lm
 except ImportError:
-    # Fallback for direct script execution
-    from utils.algorithms.neighbor_joining import dlca_nj, dlca_lm
+    # Fallback when running as a script with sys.path.insert(0, 'src')
+    from sparsernj.utils.algorithms.neighbor_joining import dlca_nj, dlca_lm
 from . import treenode
 from . import distance_provider
 

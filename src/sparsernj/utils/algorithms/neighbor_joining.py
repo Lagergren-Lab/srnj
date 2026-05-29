@@ -15,7 +15,7 @@ try:
     from ..tree_utils import label_tree, convert_networkx_to_dendropy
 except ImportError:
     # Fallback for direct script execution
-    from utils.tree_utils import label_tree, convert_networkx_to_dendropy
+    from sparsernj.utils.tree_utils import label_tree, convert_networkx_to_dendropy
 
 
 def _build_tree_rec(ctr: dict, ntc: dict, ntr: dict, otus: set, edges: set[tuple], idx=None, collapsed_root=True) -> set[tuple]:

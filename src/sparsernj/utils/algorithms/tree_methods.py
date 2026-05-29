@@ -13,8 +13,8 @@ try:
     from ..tree_utils import convert_networkx_to_dendropy
 except ImportError:
     # Fallback for direct script execution
-    from utils.algorithms.neighbor_joining import anj
-    from utils.tree_utils import convert_networkx_to_dendropy
+    from sparsernj.utils.algorithms.neighbor_joining import anj
+    from sparsernj.utils.tree_utils import convert_networkx_to_dendropy
 
 
 def _fast_me(D):

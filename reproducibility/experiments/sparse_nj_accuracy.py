@@ -14,12 +14,12 @@ import tqdm
 # Add src to path for direct execution
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
-from utils.algorithms.neighbor_joining import split_tdm, std_njx, dlca_nj
-from utils import tree_utils
-from utils import tree_simulation as tb_utils
+from sparsernj.utils.algorithms.neighbor_joining import split_tdm, std_njx, dlca_nj
+from sparsernj.utils import tree_utils
+from sparsernj.utils import tree_simulation as tb_utils
 from sparsernj import sparse_rnj, sparse_nj
 from sparsernj import FixedDistanceProvider
-from utils.algorithms.tree_methods import get_fastme_dtree, get_anj_dtree
+from sparsernj.utils.algorithms.tree_methods import get_fastme_dtree, get_anj_dtree
 
 TIME_PAIRWISE_DIST = 0.1  # emulated time per pairwise distance call in seconds, for time estimation based on number of calls
 

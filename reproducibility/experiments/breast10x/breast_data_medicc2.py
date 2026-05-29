@@ -18,9 +18,9 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from sparsernj import FixedDistanceProvider, sparse_nj, sparse_rnj, get_lca_from_pairwise
-from utils.algorithms.neighbor_joining import dlca_nj, std_nj_root
-from utils.evaluation.benchmarking import read_chisel_mutations, read_chisel_clones, get_medicc2_dist
-from utils.tree_utils import nxtree_to_newick
+from sparsernj.utils.algorithms.neighbor_joining import dlca_nj, std_nj_root
+from sparsernj.utils.evaluation.benchmarking import read_chisel_mutations, read_chisel_clones, get_medicc2_dist
+from sparsernj.utils.tree_utils import nxtree_to_newick
 
 medicc2_dist_path = "./output/breast_x10/medicc2_out/distances.npz"
 assert os.path.exists(medicc2_dist_path), f"Distance matrix file not found at {medicc2_dist_path}"
