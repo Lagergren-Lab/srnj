@@ -26,3 +26,4 @@ external/
 # Users scripts in the root directory
 *.sh
 *.py
+results
