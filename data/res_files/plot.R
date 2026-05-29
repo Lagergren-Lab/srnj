@@ -37,8 +37,8 @@ theme_paper <- function() {
     )
 }
 
-# figure folder
-fig_root <- "/Users/zemp/phd/scilife/rnj/doc-bio/Fig"
+# figure folder (override with env var FIG_ROOT)
+fig_root <- Sys.getenv("FIG_ROOT", unset = ".")
 
 method_recode <- c(
   nj = "NJ", dlca_nj = "DLCA-NJ", snj = "SNJ",
@@ -210,9 +210,9 @@ sig_rows_b <- lapply(seq_len(nrow(groups_b)), function(i) {
   mt <- as.character(groups_b$metric[i])
   d  <- sig_wide_b |> filter(metric == mt)
   p_A <- suppressWarnings(wilcox.test(d[["NJ_SCONCE2"]], d[["DLCA-NJ_SCONCE2"]],
-                                       paired = TRUE, alternative = "greater")$p.value)
+                                       paired = TRUE)$p.value)
   p_B <- suppressWarnings(wilcox.test(d[["DLCA-NJ_SCONCE2"]], d[["DLCA-NJ_MEDICC2"]],
-                                       paired = TRUE, alternative = "less")$p.value)
+                                       paired = TRUE)$p.value)
   cat(sprintf("3b λ=5 n=100 | %s | NJ_SC vs DLCANJ_SC: p=%.4f | DLCANJ_SC vs DLCANJ_MD: p=%.4f\n",
               mt, p_A, p_B))
   data.frame(metric = mt, p_A = p_A, p_B = p_B, stringsAsFactors = FALSE)
@@ -279,26 +279,15 @@ ggsave(file.path(fig_root, "figure4_cn_error.pdf"), fig4, width = 7, height = 3,
 # ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 5 – Time: num_calls × min SCONCE2 pp time
 # ══════════════════════════════════════════════════════════════════════════════
-pp_min <- cpu |> filter(tool == "SCONCE2") |> pull(avg_pp) |> min()
+pp_mean <- cpu |> filter(tool == "SCONCE2") |> pull(avg_pp) |> mean()
 
-time_ext <- time_df |> select(n_cells, seed, method, num_calls) |>
-  bind_rows(tibble(
-    n_cells   = 1000,
-    seed      = NA_real_,
-    method    = c("NJ", "DLCA-NJ"),
-    num_calls = 1000 * 999 / 2
-  )) |>
-  bind_rows(
-    time_df |> filter(n_cells == 1000, method == "SRNJ") |>
-      select(n_cells, seed, num_calls) |>
-      mutate(method = "SRNJ*")
-  )
+time_ext <- time_df |> select(n_cells, seed, method, num_calls)
 
 message("Unique n_cells in time_df: ", paste(sort(unique(time_ext$n_cells)), collapse = ", "))
 message("Unique methods in time_df: ", paste(sort(unique(time_ext$method)), collapse = ", "))
 
 f5_base <- time_ext |>
-  mutate(total_time = num_calls * pp_min) |>
+  mutate(total_time = num_calls * pp_mean) |>
   group_by(n_cells, method) |>
   summarise(mean_t = mean(total_time, na.rm = TRUE),
             sd_t   = sd(total_time,   na.rm = TRUE), .groups = "drop")
