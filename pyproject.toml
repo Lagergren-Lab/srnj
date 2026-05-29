@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sparsernj"
+version = "0.1.0"
+description = "Sparse Rooted Neighbor Joining: scalable phylogenetic tree reconstruction from copy number data"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.25",
+    "networkx>=3.0",
+    "dendropy>=5.0",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+# Required to run the reproducibility experiments
+experiments = [
+    "anndata>=0.10",
+    "pandas",
+    "tqdm",
+    "scikit-learn",
+    "matplotlib",
+    "seaborn",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
