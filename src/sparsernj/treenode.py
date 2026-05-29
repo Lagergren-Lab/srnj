@@ -208,11 +208,12 @@ class Tree:
 
     # == END REPEATED METHODS ===
 
-    def pick_AB_leaves(self, k: int = 1) -> tuple[tuple, tuple]:
+    def pick_AB_leaves(self, k: int = 1, all_leaves: bool = False) -> tuple[tuple, tuple]:
         """
         Pick k leaves per direction (x2) going out of the centroid (directed away from the root).
         Also returns the neighbors of the centroid, with the first two matching the picked leaf and the third/last
          neighbor being the one toward the root.
+        If all_leaves=True, return every leaf on each side (sorted) rather than a random k sample.
         """
         # FIXME: mostly equal to UTree implementation, may be partially inherited
         centroid = self.get_centroid()
@@ -226,8 +227,11 @@ class Tree:
                 up_nbr = nbr
                 continue  # skip the root side
             assert len(subtree_leaves) > 0, "Subtree must have at least one leaf"
-            # sample k leaves at random without replacement
-            leaves_labels = random.sample(list(subtree_leaves), k=min(k, len(subtree_leaves)))
+            if all_leaves:
+                leaves_labels = sorted(list(subtree_leaves))
+            else:
+                # sample k leaves at random without replacement
+                leaves_labels = random.sample(list(subtree_leaves), k=min(k, len(subtree_leaves)))
             leaves.append(leaves_labels)
             nbrs.append(nbr)
         nbrs.append(up_nbr)

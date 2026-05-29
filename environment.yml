@@ -22,6 +22,7 @@ dependencies:
 
   - pip:
     - scgenome
+    - CNASim==1.3.5
 
 # External binary dependencies (install manually):
 #   - tqDist: quartet_dist, triplet_dist from https://www.birc.au.dk/~cstorm/software/tqdist/

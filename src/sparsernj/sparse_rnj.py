@@ -85,19 +85,22 @@ def insert_taxon_into_tree(
     k: int = 1,
     ort_selector: Union[str, Callable] = "min_D",
     ort_strategy: str = None,  # deprecated alias for ort_selector
+    all_leaves: bool = False,
 ) -> treenode.Tree:
     """Insert taxon into the tree at the appropriate position.
 
     k is the number of candidate orienting leaves per side of the centroid.
     ort_selector can be a built-in strategy name ('min_D' or 'max_lca') or any
     callable with signature (leavesA, leavesB, taxon, dist_matrix) -> (ortA, ortB).
+    all_leaves=True passes every available leaf to the selector instead of k random ones;
+    use this with cheap-proxy (matrix-based) selectors that score all leaves at no extra cost.
     """
     if ort_strategy is not None:
         ort_selector = ort_strategy
     selector_fn = _resolve_selector(ort_selector)
 
     centroid = tree.get_centroid()
-    (leavesA, leavesB), ort_nodes = tree.pick_AB_leaves(k=k)
+    (leavesA, leavesB), ort_nodes = tree.pick_AB_leaves(k=k, all_leaves=all_leaves)
     ortA, ortB = selector_fn(leavesA, leavesB, taxon, dp)
     pointers = [ortA, ortB, taxon]
     lca_dm_, adm_ = dp.get_dms(pointers)
@@ -116,7 +119,7 @@ def insert_taxon_into_tree(
         return tree
     else:
         tree.mark_centroid_barrier_from(direction_node)
-        return insert_taxon_into_tree(tree, taxon, dp, k=k, ort_selector=ort_selector)
+        return insert_taxon_into_tree(tree, taxon, dp, k=k, ort_selector=ort_selector, all_leaves=all_leaves)
 
 
 def pick_initial_taxa(dist_matrix, num_initial):
@@ -131,6 +134,7 @@ def sparse_rnj(
     k: int = None,
     ort_selector: Union[str, Callable] = "min_D",
     ort_strategy: str = None,  # deprecated alias for ort_selector
+    all_leaves: bool = False,
 ) -> nx.DiGraph:
     """Sparse Rooted Neighbor-Joining algorithm.
 
@@ -147,6 +151,10 @@ def sparse_rnj(
         Leaf-selection strategy.  Built-in names: 'min_D' (default) or 'max_lca'.
         Pass a callable (leavesA, leavesB, taxon, dist_matrix) -> (ortA, ortB) for
         custom selection (see sparsernj.ort_selection.matrix_selection_strategy).
+    all_leaves : bool
+        When True, every leaf on each centroid side is passed to the selector instead
+        of a random k sample.  Use with cheap-proxy selectors (matrix_selection_strategy)
+        that score all leaves at no extra distance-estimation cost.
     """
     if ort_strategy is not None:
         ort_selector = ort_strategy
@@ -167,7 +175,7 @@ def sparse_rnj(
     nxtree = dlca_nj(lca_dm_, adm_, collapsed_root=False, taxa=initial_taxa, root_label=root_label)
     tree = treenode.Tree.from_networkx(nxtree)
     for taxon in insertion_order:
-        tree = insert_taxon_into_tree(tree, taxon, dist_matrix, k=k, ort_selector=ort_selector)
+        tree = insert_taxon_into_tree(tree, taxon, dist_matrix, k=k, ort_selector=ort_selector, all_leaves=all_leaves)
         tree.expand()
 
     return tree.to_networkx()
