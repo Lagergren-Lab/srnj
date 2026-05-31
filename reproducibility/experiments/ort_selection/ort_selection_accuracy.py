@@ -173,8 +173,8 @@ def run_experiment(
     metrics_fields = ["n_cells", "seed", "strategy", "metric", "dist"]
     accuracy_fields = [
         "n_cells", "seed", "strategy",
-        "correct_A", "correct_B", "correct_pair", "total_decisions",
-        "pair_accuracy", "side_accuracy",
+        "correct_A", "correct_B", "correct_pair", "correct_direction", "total_decisions",
+        "pair_accuracy", "side_accuracy", "direction_accuracy",
     ]
 
     with open(metrics_path, "w", newline="") as f:
@@ -247,11 +247,16 @@ def run_experiment(
             # --- Cheap-proxy strategies ---
             for strategy in strategies:
                 oracle_key = "gt_max_lca" if strategy in MAX_LCA_STRATEGIES else "gt_min"
-                stats = {"total_decisions": 0, "correct_A": 0, "correct_B": 0, "correct_pair": 0}
+                stats = {
+                    "total_decisions": 0,
+                    "correct_A": 0, "correct_B": 0, "correct_pair": 0,
+                    "correct_direction": 0,
+                }
                 selector = matrix_selection_strategy(
                     selection_mats[strategy],
                     oracle_matrix=selection_mats[oracle_key],
                     stats=stats,
+                    distance_matrices=(C, A),
                 )
                 dp = FixedDistanceProvider(C, A, taxa=taxa, track_distinct_calls=True)
                 nx_t = sparse_rnj(dp, ort_selector=selector, k=k_eff, all_leaves=True)
@@ -261,21 +266,19 @@ def run_experiment(
                 _write_metrics(metrics_path, metrics_fields, n_cells, seed,
                                strategy, _tree_metrics(gt_tree, d_t))
 
-                pair_acc = (
-                    stats["correct_pair"] / stats["total_decisions"]
-                    if stats["total_decisions"] else None
-                )
-                side_acc = (
-                    (stats["correct_A"] + stats["correct_B"]) / (2 * stats["total_decisions"])
-                    if stats["total_decisions"] else None
-                )
+                td = stats["total_decisions"]
+                pair_acc = stats["correct_pair"] / td if td else None
+                side_acc = (stats["correct_A"] + stats["correct_B"]) / (2 * td) if td else None
+                dir_acc  = stats["correct_direction"] / td if td else None
                 with open(accuracy_path, "a", newline="") as f:
                     csv.DictWriter(f, fieldnames=accuracy_fields).writerow({
                         "n_cells": n_cells, "seed": seed, "strategy": strategy,
                         "correct_A": stats["correct_A"], "correct_B": stats["correct_B"],
                         "correct_pair": stats["correct_pair"],
-                        "total_decisions": stats["total_decisions"],
+                        "correct_direction": stats["correct_direction"],
+                        "total_decisions": td,
                         "pair_accuracy": pair_acc, "side_accuracy": side_acc,
+                        "direction_accuracy": dir_acc,
                     })
 
         print(f"[n={n_cells}] Done. Metrics -> {metrics_path.name}")

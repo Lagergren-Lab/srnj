@@ -13,14 +13,32 @@ Typical usage::
     selector = matrix_selection_strategy(mats["hamming"])
     tree = sparse_rnj(provider, ort_selector=selector)
 """
-from typing import Any, Callable, Optional
+from typing import Callable, Optional, Tuple
 
 import numpy as np
 
 try:
     from .distance_provider import get_lca_from_pairwise
+    from .utils.algorithms.neighbor_joining import dlca_lm
 except ImportError:
     from sparsernj.distance_provider import get_lca_from_pairwise
+    from sparsernj.utils.algorithms.neighbor_joining import dlca_lm
+
+
+# ── Direction helpers ─────────────────────────────────────────────────────────
+
+def _cherry_to_dir(cherry: list) -> int:
+    """Map a 3-taxon NJ cherry to insertion direction: 0=A-side, 1=B-side, 2=root."""
+    if 2 in cherry:
+        return cherry[0] if cherry[1] == 2 else cherry[1]
+    return 2  # ortA and ortB joined → taxon goes toward root
+
+
+def _lm_direction(pointers: list, C: np.ndarray, A: np.ndarray) -> int:
+    """Run dlca_lm on [ortA, ortB, taxon] from full C/A (integer-indexed)."""
+    idx = np.array(pointers)
+    cherry = dlca_lm(C[np.ix_(idx, idx)], A[np.ix_(idx, idx)])[0, :2].astype(int).tolist()
+    return _cherry_to_dir(cherry)
 
 
 # ── Selector factory ──────────────────────────────────────────────────────────
@@ -29,6 +47,7 @@ def matrix_selection_strategy(
     selection_matrix: np.ndarray,
     oracle_matrix: Optional[np.ndarray] = None,
     stats: Optional[dict] = None,
+    distance_matrices: Optional[Tuple[np.ndarray, np.ndarray]] = None,
 ) -> Callable:
     """Return an orienting-leaf selector that picks leaves by argmin of a precomputed matrix.
 
@@ -50,13 +69,22 @@ def matrix_selection_strategy(
         accuracy counters are incremented.
     stats : dict, optional
         Mutable dict with keys ``total_decisions``, ``correct_A``, ``correct_B``,
-        ``correct_pair``.  Updated in-place when ``oracle_matrix`` is supplied.
+        ``correct_pair``.  If the dict also contains ``"correct_direction"`` and
+        ``distance_matrices`` is supplied, the 3-way direction accuracy is tracked too.
+    distance_matrices : tuple (C, A), optional
+        Ground-truth LCA and asymmetric distance matrices (integer-indexed, shape n×n).
+        Required for direction accuracy tracking.  Taxa labels must be integer indices
+        into these matrices.
 
     Returns
     -------
     Callable
         A selector with signature ``(leavesA, leavesB, taxon, dist_matrix) -> (ortA, ortB)``.
     """
+    C_mat = A_mat = None
+    if distance_matrices is not None:
+        C_mat, A_mat = distance_matrices
+
     def _select(leavesA, leavesB, taxon, dist_matrix) -> tuple:
         leavesA = sorted(list(leavesA))
         leavesB = sorted(list(leavesB))
@@ -83,6 +111,13 @@ def matrix_selection_strategy(
             stats["correct_A"] += int(a_ok)
             stats["correct_B"] += int(b_ok)
             stats["correct_pair"] += int(a_ok and b_ok)
+
+            if "correct_direction" in stats and C_mat is not None:
+                ref_ortA = min(ref_cand_A)
+                ref_ortB = min(ref_cand_B)
+                oracle_dir = _lm_direction([ref_ortA, ref_ortB, taxon], C_mat, A_mat)
+                strat_dir  = _lm_direction([ortA, ortB, taxon], C_mat, A_mat)
+                stats["correct_direction"] += int(strat_dir == oracle_dir)
 
         return ortA, ortB
 

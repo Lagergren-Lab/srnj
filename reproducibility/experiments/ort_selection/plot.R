@@ -106,25 +106,37 @@ ggsave(file.path(fig_root, "ort_selection_distances.pdf"), fig1,
        height = fig1_height, device = cairo_pdf)
 
 # ── Figure 2: Orienting-leaf selection accuracy, faceted by n_cells ──────────
-# Correct-pair accuracy: fraction of insertion steps where both chosen leaves
-# (one per centroid side) matched the oracle selection from ground-truth C/A.
-# Ground-truth (gt_min, gt_max_lca) should reach ~100%; cheap proxies are lower.
-fig2 <- ggplot(accuracy, aes(x = strategy, y = pair_accuracy,
+# Two panels stacked vertically:
+#   top    – pair_accuracy:      both ortA and ortB matched the oracle leaf
+#   bottom – direction_accuracy: the 3-way insertion direction (A/B/root) matched
+#
+# Ground-truth strategies (gt_*) reach ~100% on their own oracle; cheap proxies
+# are lower.  direction_accuracy is higher than pair_accuracy because a different
+# leaf can still yield the same A/B/root decision.
+acc_long <- accuracy |>
+  select(n_cells, seed, strategy, pair_accuracy, direction_accuracy) |>
+  pivot_longer(c(pair_accuracy, direction_accuracy),
+               names_to = "acc_type", values_to = "accuracy") |>
+  mutate(acc_type = factor(acc_type,
+                            levels = c("pair_accuracy", "direction_accuracy"),
+                            labels = c("Leaf-pair accuracy", "Direction accuracy (A/B/root)")))
+
+fig2 <- ggplot(acc_long, aes(x = strategy, y = accuracy,
                               colour = strategy, fill = strategy)) +
   geom_boxplot(alpha = 0.25, outlier.shape = NA, linewidth = 0.4) +
-  geom_beeswarm(size = 1.0, alpha = 0.75, cex = 0.7) +
-  facet_wrap(~ n_cells, nrow = 1,
+  geom_beeswarm(size = 0.9, alpha = 0.75, cex = 0.6) +
+  facet_grid(acc_type ~ n_cells,
              labeller = labeller(n_cells = \(x) paste0("n=", x))) +
   scale_colour_manual(values = STRATEGY_COLORS, labels = STRATEGY_LABELS) +
   scale_fill_manual(values   = STRATEGY_COLORS, labels = STRATEGY_LABELS) +
   scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1.02)) +
-  labs(x = NULL, y = "Correct pair selection (vs oracle)") +
+  labs(x = NULL, y = "Accuracy vs oracle") +
   theme_paper() +
   theme(axis.text.x  = element_text(angle = 45, hjust = 1, size = 6),
         legend.position = "none")
 
 ggsave(file.path(fig_root, "ort_selection_accuracy.pdf"), fig2,
-       width = max(4, 2.5 * nlevels(accuracy$n_cells)),
-       height = 3.2, device = cairo_pdf)
+       width = max(5, 1.8 * nlevels(accuracy$n_cells)),
+       height = 5.0, device = cairo_pdf)
 
 message("Wrote ort_selection_distances.pdf and ort_selection_accuracy.pdf to ", fig_root)
