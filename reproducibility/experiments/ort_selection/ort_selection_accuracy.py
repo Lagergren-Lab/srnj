@@ -15,12 +15,17 @@ Quick demo
 ----------
     python ort_selection_accuracy.py --demo
 
-Full run
---------
-    python ort_selection_accuracy.py --n-cells 50 100 200 --seeds 0 1 2 3 4
+Full run (serial)
+-----------------
+    python ort_selection_accuracy.py --n-cells 50 100 200 --seeds 0 1 2
+
+Full run (32 parallel workers via SLURM)
+-----------------------------------------
+    sbatch slurm_run.sh
 """
 
 import argparse
+import concurrent.futures
 import csv
 import importlib.util
 import os
@@ -62,6 +67,10 @@ CN_LENGTH_MEAN = 10_000_000
 
 # Strategies that use argmax(LCA depth); oracle for them is gt_max_lca
 MAX_LCA_STRATEGIES = frozenset({"gt_max_lca", "hamming_max_lca", "nll_max_lca"})
+
+# Module-level store populated by run_experiment before forking workers.
+# Workers inherit it via fork (Linux COW) — no pickling overhead.
+_TASK_DATA: dict = {}  # n_cells -> (C, A, gt_newick, taxa, selection_mats, k_eff)
 
 
 # ------------------------------------------------------------------
@@ -154,6 +163,87 @@ def _tree_metrics(gt_tree: dpy.Tree, est_tree: dpy.Tree) -> dict:
 
 
 # ------------------------------------------------------------------
+# Per-(n_cells, seed) worker  (module-level so fork can see _TASK_DATA)
+# ------------------------------------------------------------------
+
+def _run_one_seed(args):
+    """Run all strategies for one (n_cells, seed) pair. Returns (metrics_rows, accuracy_rows)."""
+    n_cells, seed = args
+    C, A, gt_newick, taxa, selection_mats, k_eff = _TASK_DATA[n_cells]
+
+    # Reconstruct gt_tree in worker (dendropy trees aren't fork-safe across re-init)
+    n = len(taxa)
+    tns = dpy.TaxonNamespace([dpy.Taxon(str(i)) for i in range(n)])
+    gt_tree = dpy.Tree.get(data=gt_newick, schema="newick", taxon_namespace=tns)
+    gt_tree.is_rooted = True
+
+    random.seed(seed)
+    np.random.seed(seed)
+    dpy.utility.GLOBAL_RNG.seed(seed)
+
+    metrics_rows = []
+    accuracy_rows = []
+
+    def _add_metrics(strategy, tree_m):
+        for metric, val in tree_m.items():
+            metrics_rows.append({
+                "n_cells": n_cells, "seed": seed,
+                "strategy": strategy, "metric": metric, "dist": val,
+            })
+
+    # --- DLCA-NJ baseline ---
+    nx_dlca = dlca_nj(C, A, taxa=taxa, collapsed_root=False, root_label="root")
+    d_dlca = tree_utils.convert_networkx_to_dendropy(
+        nx_dlca, taxon_namespace=gt_tree.taxon_namespace, internal_nodes_label="int"
+    )
+    _add_metrics("dlca_nj", _tree_metrics(gt_tree, d_dlca))
+
+    # --- SRNJ built-in strategies ---
+    for builtin_name in ("min_D", "max_lca"):
+        dp = FixedDistanceProvider(C, A, taxa=taxa, track_distinct_calls=True)
+        nx_t = sparse_rnj(dp, ort_selector=builtin_name, k=k_eff)
+        d_t = tree_utils.convert_networkx_to_dendropy(
+            nx_t, taxon_namespace=gt_tree.taxon_namespace, internal_nodes_label="int"
+        )
+        _add_metrics(f"srnj_{builtin_name}", _tree_metrics(gt_tree, d_t))
+
+    # --- Cheap-proxy strategies ---
+    for strategy in selection_mats:
+        oracle_key = "gt_max_lca" if strategy in MAX_LCA_STRATEGIES else "gt_min"
+        stats = {
+            "total_decisions": 0,
+            "correct_A": 0, "correct_B": 0, "correct_pair": 0, "correct_direction": 0,
+        }
+        selector = matrix_selection_strategy(
+            selection_mats[strategy],
+            oracle_matrix=selection_mats[oracle_key],
+            stats=stats,
+            distance_matrices=(C, A),
+        )
+        dp = FixedDistanceProvider(C, A, taxa=taxa, track_distinct_calls=True)
+        nx_t = sparse_rnj(dp, ort_selector=selector, k=k_eff, all_leaves=True)
+        d_t = tree_utils.convert_networkx_to_dendropy(
+            nx_t, taxon_namespace=gt_tree.taxon_namespace, internal_nodes_label="int"
+        )
+        _add_metrics(strategy, _tree_metrics(gt_tree, d_t))
+
+        td = stats["total_decisions"]
+        accuracy_rows.append({
+            "n_cells": n_cells, "seed": seed, "strategy": strategy,
+            "correct_A": stats["correct_A"], "correct_B": stats["correct_B"],
+            "correct_pair": stats["correct_pair"],
+            "correct_direction": stats["correct_direction"],
+            "total_decisions": td,
+            "pair_accuracy":      stats["correct_pair"] / td if td else None,
+            "side_accuracy":      (stats["correct_A"] + stats["correct_B"]) / (2 * td) if td else None,
+            "direction_accuracy": stats["correct_direction"] / td if td else None,
+        })
+
+    print(f"  [n={n_cells:>3} seed={seed}] done", flush=True)
+    return metrics_rows, accuracy_rows
+
+
+# ------------------------------------------------------------------
 # Experiment runner
 # ------------------------------------------------------------------
 
@@ -164,10 +254,11 @@ def run_experiment(
     skip_cnasim: bool = False,
     k=None,
     cnasim_exec: str = "cnasim",
+    n_workers: int = 1,
 ):
     out_dir.mkdir(parents=True, exist_ok=True)
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    metrics_path = out_dir / f"{timestamp}_ort_metrics.csv"
+    metrics_path  = out_dir / f"{timestamp}_ort_metrics.csv"
     accuracy_path = out_dir / f"{timestamp}_ort_selection_accuracy.csv"
 
     metrics_fields = ["n_cells", "seed", "strategy", "metric", "dist"]
@@ -177,13 +268,10 @@ def run_experiment(
         "pair_accuracy", "side_accuracy", "direction_accuracy",
     ]
 
-    with open(metrics_path, "w", newline="") as f:
-        csv.DictWriter(f, fieldnames=metrics_fields).writeheader()
-    with open(accuracy_path, "w", newline="") as f:
-        csv.DictWriter(f, fieldnames=accuracy_fields).writeheader()
-
     cnasim2adata = _load_cnasim2adata()
 
+    # ── Phase 1: prepare data per n_cells (sequential: cnasim + matrix build) ──
+    global _TASK_DATA
     for n_cells in n_cells_list:
         h5ad_path = out_dir / f"input_n{n_cells}.h5ad"
 
@@ -205,95 +293,50 @@ def run_experiment(
         if normal_mask.sum() == 0:
             raise ValueError("No normal cells in AnnData — cannot fit NLL/Hamming baseline.")
 
-        # Observed copy-number profiles (tumor taxa only for indexing consistency)
         X = np.asarray(adata.layers["copy"]) if "copy" in adata.layers else (
             adata.X.toarray() if hasattr(adata.X, "toarray") else np.asarray(adata.X)
         )
         observed = X.astype(float)
-        healthy = observed[normal_mask]
+        healthy  = observed[normal_mask]
 
         C, A, gt_tree = _ground_truth_ca(adata)
         taxa = list(range(adata.n_obs))
         selection_mats = selection_matrices_from_cn(C, A, observed, healthy)
-
         k_eff = k if k is not None else round(np.log2(len(taxa)))
-        strategies = list(selection_mats.keys())
 
-        print(f"[n={n_cells}] strategies: {strategies}  seeds: {seeds}  k={k_eff}")
+        print(f"[n={n_cells}] selection_mats: {list(selection_mats)}  k={k_eff}")
+        _TASK_DATA[n_cells] = (C, A, gt_tree.as_string("newick"), taxa, selection_mats, k_eff)
 
-        for seed in seeds:
-            random.seed(seed)
-            np.random.seed(seed)
-            dpy.utility.GLOBAL_RNG.seed(seed)
+    # ── Phase 2: run (n_cells, seed) pairs ────────────────────────────────────
+    tasks = [(n_cells, seed) for n_cells in n_cells_list for seed in seeds]
+    n_tasks = len(tasks)
+    print(f"\nDispatching {n_tasks} tasks with {n_workers} worker(s)...")
+    t0 = time.time()
 
-            # --- DLCA-NJ baseline (exact, full O(n^2) distances) ---
-            nx_dlca = dlca_nj(C, A, taxa=taxa, collapsed_root=False, root_label="root")
-            d_dlca = tree_utils.convert_networkx_to_dendropy(
-                nx_dlca, taxon_namespace=gt_tree.taxon_namespace, internal_nodes_label="int"
-            )
-            _write_metrics(metrics_path, metrics_fields, n_cells, seed, "dlca_nj",
-                           _tree_metrics(gt_tree, d_dlca))
+    if n_workers > 1:
+        # fork workers so they inherit _TASK_DATA without pickling
+        with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as exe:
+            all_results = list(exe.map(_run_one_seed, tasks))
+    else:
+        all_results = [_run_one_seed(t) for t in tasks]
 
-            # --- SRNJ built-in strategies ---
-            for builtin_name in ("min_D", "max_lca"):
-                dp = FixedDistanceProvider(C, A, taxa=taxa, track_distinct_calls=True)
-                nx_t = sparse_rnj(dp, ort_selector=builtin_name, k=k_eff)
-                d_t = tree_utils.convert_networkx_to_dendropy(
-                    nx_t, taxon_namespace=gt_tree.taxon_namespace, internal_nodes_label="int"
-                )
-                _write_metrics(metrics_path, metrics_fields, n_cells, seed,
-                               f"srnj_{builtin_name}", _tree_metrics(gt_tree, d_t))
+    print(f"All tasks done in {time.time() - t0:.1f}s.")
 
-            # --- Cheap-proxy strategies ---
-            for strategy in strategies:
-                oracle_key = "gt_max_lca" if strategy in MAX_LCA_STRATEGIES else "gt_min"
-                stats = {
-                    "total_decisions": 0,
-                    "correct_A": 0, "correct_B": 0, "correct_pair": 0,
-                    "correct_direction": 0,
-                }
-                selector = matrix_selection_strategy(
-                    selection_mats[strategy],
-                    oracle_matrix=selection_mats[oracle_key],
-                    stats=stats,
-                    distance_matrices=(C, A),
-                )
-                dp = FixedDistanceProvider(C, A, taxa=taxa, track_distinct_calls=True)
-                nx_t = sparse_rnj(dp, ort_selector=selector, k=k_eff, all_leaves=True)
-                d_t = tree_utils.convert_networkx_to_dendropy(
-                    nx_t, taxon_namespace=gt_tree.taxon_namespace, internal_nodes_label="int"
-                )
-                _write_metrics(metrics_path, metrics_fields, n_cells, seed,
-                               strategy, _tree_metrics(gt_tree, d_t))
-
-                td = stats["total_decisions"]
-                pair_acc = stats["correct_pair"] / td if td else None
-                side_acc = (stats["correct_A"] + stats["correct_B"]) / (2 * td) if td else None
-                dir_acc  = stats["correct_direction"] / td if td else None
-                with open(accuracy_path, "a", newline="") as f:
-                    csv.DictWriter(f, fieldnames=accuracy_fields).writerow({
-                        "n_cells": n_cells, "seed": seed, "strategy": strategy,
-                        "correct_A": stats["correct_A"], "correct_B": stats["correct_B"],
-                        "correct_pair": stats["correct_pair"],
-                        "correct_direction": stats["correct_direction"],
-                        "total_decisions": td,
-                        "pair_accuracy": pair_acc, "side_accuracy": side_acc,
-                        "direction_accuracy": dir_acc,
-                    })
-
-        print(f"[n={n_cells}] Done. Metrics -> {metrics_path.name}")
+    # ── Phase 3: write collected results ──────────────────────────────────────
+    with open(metrics_path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=metrics_fields)
+        w.writeheader()
+        for metrics_rows, _ in all_results:
+            w.writerows(metrics_rows)
+    with open(accuracy_path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=accuracy_fields)
+        w.writeheader()
+        for _, accuracy_rows in all_results:
+            w.writerows(accuracy_rows)
 
     print(f"Metrics CSV:  {metrics_path}")
     print(f"Accuracy CSV: {accuracy_path}")
     return metrics_path, accuracy_path
-
-
-def _write_metrics(path, fields, n_cells, seed, strategy, metrics):
-    with open(path, "a", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
-        for metric, val in metrics.items():
-            w.writerow({"n_cells": n_cells, "seed": seed,
-                        "strategy": strategy, "metric": metric, "dist": val})
 
 
 # ------------------------------------------------------------------
@@ -316,6 +359,8 @@ def parse_args():
                    help="Orienting leaves per side for built-in SRNJ strategies (default: log2 n).")
     p.add_argument("--cnasim-exec", type=str, default="cnasim",
                    help="Path to the cnasim binary (default: 'cnasim', found in PATH).")
+    p.add_argument("--n-workers", type=int, default=1,
+                   help="Parallel workers for (n_cells, seed) tasks (default: 1).")
     return p.parse_args()
 
 
@@ -334,4 +379,5 @@ if __name__ == "__main__":
         skip_cnasim=args.skip_cnasim,
         cnasim_exec=args.cnasim_exec,
         k=args.k,
+        n_workers=args.n_workers,
     )
