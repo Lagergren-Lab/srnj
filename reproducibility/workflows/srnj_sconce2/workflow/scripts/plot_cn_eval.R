@@ -20,6 +20,16 @@ df_long <- df %>%
                values_to = "distance") %>%
   mutate(dist_metric = gsub("_dist_avg", "", dist_metric))
 
+# Drop NaN rows (e.g. from failed SCONCE2 runs)
+df_long <- df_long %>% filter(!is.na(distance))
+if (nrow(df_long) == 0) {
+  message("No valid data to plot (all distances are NaN). Writing empty placeholder.")
+  png(output_file, width = 800, height = 600)
+  plot.new(); text(0.5, 0.5, "No data (all SCONCE2 runs failed)", cex = 1.5)
+  dev.off()
+  quit(status = 0)
+}
+
 # Create plot
 p <- ggplot(df_long, aes(x = cn_type, y = distance, fill = cn_type)) +
   geom_boxplot(alpha = 0.7) +

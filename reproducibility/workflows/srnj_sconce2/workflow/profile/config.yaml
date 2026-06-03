@@ -1,5 +1,5 @@
 executor: slurm
-jobs: 60
+jobs: 100
 cores: 960
 
 use-conda: true
@@ -20,4 +20,4 @@ set-resources:
 default-resources:
   mem_mb_per_cpu: 4000
   runtime: 30
-  slurm_account: "naiss2025-22-1610"
+  slurm_account: "naiss2026-3-168"

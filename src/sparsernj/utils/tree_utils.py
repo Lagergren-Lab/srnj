@@ -1,5 +1,6 @@
 import logging
 import math
+import os
 import random
 import subprocess
 import re
@@ -567,25 +568,26 @@ def quartet_distance(tree1: dpy.Tree, tree2: dpy.Tree) -> int:
     NOTE: trees with unifurcating root are supported. The root will be considered as a leaf, therefore
     the quartet distance will be computed on (N+1 choose 4) quartets where N is the number of taxa.
     """
+    import tempfile
     n = len(tree1.leaf_nodes())
     assert n == len(tree2.leaf_nodes()), "Trees must have the same number of leaves"
-    # write to temp newick files (with rnd prefix to avoid parallel executions clash) and run quartet_dist
-    rnd_prefix = str(random.randint(0, 100000))
-    tree1_file = f"/tmp/{rnd_prefix}_tree1.nwk"
-    tree2_file = f"/tmp/{rnd_prefix}_tree2.nwk"
-    with open(tree1_file, 'w') as f:
-        f.write(tree1.as_string(schema='newick', suppress_rooting=True))
-    with open(tree2_file, 'w') as f:
-        f.write(tree2.as_string(schema='newick', suppress_rooting=True))
-    # run quartet_dist
-    result = subprocess.run(['quartet_dist', tree1_file, tree2_file], capture_output=True)
-    if result.returncode != 0:
-        logging.warning("quartet_dist failed to run, returning None for quartet distance\n" + result.stderr.decode())
-        return None
-    out_dist = int(result.stdout)
-    # clean up temp files
-    subprocess.run(['rm', tree1_file, tree2_file])
-    return out_dist
+    # use mkstemp so parallel workers (even with the same random seed) never collide
+    fd1, tree1_file = tempfile.mkstemp(suffix='_tree1.nwk')
+    fd2, tree2_file = tempfile.mkstemp(suffix='_tree2.nwk')
+    try:
+        os.close(fd1); os.close(fd2)
+        with open(tree1_file, 'w') as f:
+            f.write(tree1.as_string(schema='newick', suppress_rooting=True))
+        with open(tree2_file, 'w') as f:
+            f.write(tree2.as_string(schema='newick', suppress_rooting=True))
+        result = subprocess.run(['quartet_dist', tree1_file, tree2_file], capture_output=True)
+        if result.returncode != 0:
+            logging.warning("quartet_dist failed to run, returning None for quartet distance\n" + result.stderr.decode())
+            return None
+        return int(result.stdout)
+    finally:
+        subprocess.run(['rm', '-f', tree1_file, tree2_file])
+
 
 def normalized_triplet_distance(tree1: dpy.Tree, tree2: dpy.Tree) -> float:
     n = len(tree1.leaf_nodes())
@@ -603,25 +605,25 @@ def triplet_distance(tree1: dpy.Tree, tree2: dpy.Tree) -> int:
     Compute the triplet distance between two trees using triplet_dist binary from the tqDist package (Sand et al. 2014).
     If tqDist is not installed, returns None.
     """
+    import tempfile
     n = len(tree1.leaf_nodes())
     assert n == len(tree2.leaf_nodes()), "Trees must have the same number of leaves"
-    # write to temp newick files (with rnd prefix to avoid parallel executions clash) and run quartet_dist
-    rnd_prefix = str(random.randint(0, 100000))
-    tree1_file = f"/tmp/{rnd_prefix}_tree1.nwk"
-    tree2_file = f"/tmp/{rnd_prefix}_tree2.nwk"
-    with open(tree1_file, 'w') as f:
-        f.write(tree1.as_string(schema='newick', suppress_rooting=True))
-    with open(tree2_file, 'w') as f:
-        f.write(tree2.as_string(schema='newick', suppress_rooting=True))
-    # run quartet_dist
-    result = subprocess.run(['triplet_dist', tree1_file, tree2_file], capture_output=True)
-    if result.returncode != 0:
-        logging.warning("quartet_dist failed to run, returning None for quartet distance\n" + result.stderr.decode())
-        return None
-    out_dist = int(result.stdout)
-    # clean up temp files
-    subprocess.run(['rm', tree1_file, tree2_file])
-    return out_dist
+    fd1, tree1_file = tempfile.mkstemp(suffix='_tree1.nwk')
+    fd2, tree2_file = tempfile.mkstemp(suffix='_tree2.nwk')
+    try:
+        os.close(fd1); os.close(fd2)
+        with open(tree1_file, 'w') as f:
+            f.write(tree1.as_string(schema='newick', suppress_rooting=True))
+        with open(tree2_file, 'w') as f:
+            f.write(tree2.as_string(schema='newick', suppress_rooting=True))
+        result = subprocess.run(['triplet_dist', tree1_file, tree2_file], capture_output=True)
+        if result.returncode != 0:
+            logging.warning("triplet_dist failed to run, returning None for triplet distance\n" + result.stderr.decode())
+            return None
+        return int(result.stdout)
+    finally:
+        subprocess.run(['rm', '-f', tree1_file, tree2_file])
+
 
 def get_booster_transfer_indices(tree_ref: dpy.Tree, tree_est: dpy.Tree) -> dpy.Tree:
     """Core method: Executes booster and returns tree_ref annotated with distances."""

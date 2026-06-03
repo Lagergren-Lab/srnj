@@ -17,7 +17,7 @@ export MKL_NUM_THREADS=1
 
 module load Miniforge/24.7.1-2-hpc1
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+REPO_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 OUT_DIR=/proj/sc_ml/users/x_vitza/srnj_results/ort_test
 CNASIM=/proj/sc_ml/shared/envs/cnasim/bin/cnasim
 
@@ -29,7 +29,7 @@ echo "CPUs: $SLURM_CPUS_PER_TASK"
 # ── Run experiment ─────────────────────────────────────────────────────────────
 mamba run -n srnj python "$REPO_DIR/reproducibility/experiments/ort_selection/ort_selection_accuracy.py" \
   --n-cells 20 50 100 200 500 \
-  --seeds 0 1 2 \
+  --seeds 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 \
   --out-dir "$OUT_DIR" \
   --skip-cnasim \
   --cnasim-exec "$CNASIM" \
@@ -48,5 +48,10 @@ ORT_METRICS_CSV="$OUT_DIR/ort_metrics.csv" \
 ORT_ACCURACY_CSV="$OUT_DIR/ort_selection_accuracy.csv" \
 ORT_FIG_ROOT="$OUT_DIR" \
 Rscript "$REPO_DIR/reproducibility/experiments/ort_selection/plot.R"
+
+# ── Regenerate dataset inspection PDF (fixed page size, includes n=500) ───────
+mamba run -n srnj python "$REPO_DIR/reproducibility/experiments/ort_selection/plot_dataset.py" \
+  --results-dir "$OUT_DIR" \
+  --out "$OUT_DIR/dataset_inspect.pdf"
 
 echo "=== ort_selection end: $(date) ==="

@@ -83,6 +83,9 @@ def plot_one_dataset(adata: ad.AnnData, pdf: PdfPages, label: str) -> None:
     chr_lengths = _chromosome_lengths(adata)
     n_cells = adata.n_obs
 
+    # fixed page size so all n_cells produce the same PDF page dimensions
+    _FIGSIZE = (14, 6)
+
     # ── page 1: copy-number heatmap ──────────────────────────────────────
     cn = _copy_array(adata)
     vmax_cn = max(6, int(np.nanpercentile(cn[np.isfinite(cn)], 99)) + 1)
@@ -92,6 +95,7 @@ def plot_one_dataset(adata: ad.AnnData, pdf: PdfPages, label: str) -> None:
         chromosome_lengths=chr_lengths,
         vmin=0, vmax=vmax_cn,
         title=f"Copy-number – {label} ({n_cells} cells, seed 0)",
+        figsize=_FIGSIZE,
     )
     pdf.savefig(fig_cn, bbox_inches="tight")
     import matplotlib.pyplot as plt
@@ -105,6 +109,7 @@ def plot_one_dataset(adata: ad.AnnData, pdf: PdfPages, label: str) -> None:
         tree=nx_tree,
         chromosome_lengths=chr_lengths,
         title=f"Read counts – {label} ({n_cells} cells, seed 0)",
+        figsize=_FIGSIZE,
     )
     pdf.savefig(fig_rd, bbox_inches="tight")
     plt.close(fig_rd)

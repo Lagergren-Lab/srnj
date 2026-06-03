@@ -28,21 +28,22 @@ PROJECT_ROOT = find_project_root()
 SCONCE2_DEFAULT = os.path.join(PROJECT_ROOT, "external", "sconce2", "sconce2")
 SCONCE2_SCRIPTS_DEFAULT = os.path.join(PROJECT_ROOT, "external", "sconce2", "scripts")
 
-# Verify paths exist and warn if not
-if not os.path.exists(SCONCE2_SCRIPTS_DEFAULT):
-    print(f"Warning: SCONCE2 scripts directory not found at {SCONCE2_SCRIPTS_DEFAULT}")
-    print(f"Run: {PROJECT_ROOT}/scripts/setup_sconce2.sh to download SCONCE2")
-
 SCONCE2 = config.get("SCONCE2_EXEC", SCONCE2_DEFAULT)
 SCONCE2_SCRIPTS_PATH = config.get("SCONCE2_SCRIPTS", SCONCE2_SCRIPTS_DEFAULT)
 RESULTS_DIR = config.get("RESULTS_DIR", "results")
+
+# Verify paths exist and warn if not
+if not os.path.exists(SCONCE2_SCRIPTS_PATH):
+    print(f"Warning: SCONCE2 scripts directory not found at {SCONCE2_SCRIPTS_PATH}")
+    print(f"Run: {PROJECT_ROOT}/scripts/setup_sconce2.sh to download SCONCE2")
+
 SCRIPTS = "workflow/scripts/"
 SOURCE_PATH = PROJECT_ROOT  # Use detected project root
 # fix parameters
 N_BINS_LIST = [1000]  # 1000 bins
 N_CELLS_LIST = config.get("N_CELLS", [20])
 N_CLONES_LIST = [6]
-LAMDA_LIST = [2]  # default
+LAMDA_LIST = [2, 5]  # default
 BIN_LENGTH = 1000000  # 1Mb bins
 CN_LENGTH_MEAN = 10000000  # 10Mb average CNA length
 N_CHROM_LIST = [10]  # 10 chromosomes
@@ -51,6 +52,7 @@ REPEATS = config.get("REPEATS", 3)
 # sconce2 params
 SCONCE2_K = config.get("SCONCE2_K", 10)
 KAPPA = 10
+SEQ_ERROR_LIST = config.get("SEQ_ERROR", [0.02, 0.04])
 
 wildcard_constraints:
     replicate=r"\d+",
@@ -60,7 +62,8 @@ wildcard_constraints:
     lamda=r"\d+",
     e1=r"[\d.]+",
     e2=r"[\d.]+",
-    n_chrom=r"\d+"
+    n_chrom=r"\d+",
+    seq_error=r"[\d.]+"
 
 
 rule all:
@@ -72,7 +75,7 @@ rule all:
 
 rule simulate_cnasim:
     output:
-        counts=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","cnasim_tmp","readcounts.tsv")
+        counts=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","cnasim_tmp","readcounts.tsv")
     conda: "envs/cnasim.yaml"
     params:
         replicate=lambda wc: int(wc.replicate),
@@ -83,19 +86,20 @@ rule simulate_cnasim:
         n_chrom=lambda wc: int(wc.n_chrom),
         chrom_length=lambda wc: int(int(wc.n_bins) * BIN_LENGTH / int(wc.n_chrom)),
         normal_frac=lambda wc: NORMAL_FRACTION,
+        seq_error=lambda wc: float(wc.seq_error),
         out_dir=subpath(output.counts,parent=True)
     shell: """
     cnasim -m 1 --use-uniform-coverage -n {params.n_cells} -c {params.n_clones} \
      -p1 {params.lamda} -o {params.out_dir} -N {params.n_chrom} -L {params.chrom_length} -n1 {params.normal_frac} \
-     -B {BIN_LENGTH} --cn-length-mean {CN_LENGTH_MEAN} --cn-copy-param 0.8
+     -B {BIN_LENGTH} --cn-length-mean {CN_LENGTH_MEAN} --cn-copy-param 0.8 -S {params.seq_error}
     """
 
 rule prepare_anndata:
     input:
-        counts=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","cnasim_tmp","readcounts.tsv")
+        counts=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","cnasim_tmp","readcounts.tsv")
     output: 
-        adata=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","input.h5ad"),
-        plot=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","input_X.png")
+        adata=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad"),
+        plot=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input_X.png")
     params:
         cnasim_dir=subpath(input.counts,parent=True),
     conda: "envs/srnj.yaml"
@@ -105,11 +109,11 @@ rule prepare_anndata:
     """
 
 rule prepare_sconce2_input:
-    input: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","input.h5ad")
+    input: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad")
     output:
-        healthy_avg_bed=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","sconce2_input","healthyAvg.bed"),
-        mean_var_coef_file=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","sconce2_input","meanVarCoefFile"),
-        tumor_file_list=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","sconce2_input","tumorFileList")
+        healthy_avg_bed=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_input","healthyAvg.bed"),
+        mean_var_coef_file=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_input","meanVarCoefFile"),
+        tumor_file_list=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_input","tumorFileList")
     params:
         output_dir=subpath(output.healthy_avg_bed,parent=True),
         script_path=SCONCE2_SCRIPTS_PATH,
@@ -126,14 +130,14 @@ rule prepare_sconce2_input:
 
 rule run_sconce2:
     input:
-        healthy_avg_bed=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","sconce2_input","healthyAvg.bed"),
-        mean_var_coef_file=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","sconce2_input","meanVarCoefFile"),
-        tumor_file_list=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","sconce2_input","tumorFileList")
+        healthy_avg_bed=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_input","healthyAvg.bed"),
+        mean_var_coef_file=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_input","meanVarCoefFile"),
+        tumor_file_list=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_input","tumorFileList")
     output:
         # output marker for SCONCE2 completion
-        done=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","sconce2_output","sconce2.done"),
-        hmm=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","sconce2_output","model.hmm")
-    benchmark: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","benchmark_run_sconce2.tsv")
+        done=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_output","sconce2.done"),
+        hmm=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_output","model.hmm")
+    benchmark: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","benchmark_run_sconce2.tsv")
     params:
         output_dir=subpath(output.done,parent=True),
         k=SCONCE2_K
@@ -154,9 +158,9 @@ rule run_sconce2:
 
 rule prepare_medicc2_input:
     input:
-        sconce2_done=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","sconce2_output","sconce2.done")
+        sconce2_done=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_output","sconce2.done")
     output:
-        medicc2_input=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","medicc2_input","med_input.tsv")
+        medicc2_input=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","medicc2_input","med_input.tsv")
     params:
         sconce2_dir=subpath(input.sconce2_done,parent=True),
     conda: "envs/srnj.yaml"
@@ -177,10 +181,10 @@ rule prepare_medicc2_input:
 rule run_medicc2:
     # use sconce2 cn profiles as input to medicc2
     input:
-        medicc2_input=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","medicc2_input","med_input.tsv")
+        medicc2_input=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","medicc2_input","med_input.tsv")
     output:
-        distmat=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","medicc2_output","med_input_pairwise_distances.tsv")
-    benchmark: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","benchmark_run_medicc2.tsv")
+        distmat=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","medicc2_output","med_input_pairwise_distances.tsv")
+    benchmark: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","benchmark_run_medicc2.tsv")
     params:
         output_dir=subpath(output.distmat,parent=True)
     threads: 8
@@ -199,10 +203,10 @@ rule run_medicc2:
 
 rule run_evaluation:
     input:
-        med_dist=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","medicc2_output","med_input_pairwise_distances.tsv"),
-        sconce2_hmm=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","sconce2_output","model.hmm"),
-        input_ad=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","input.h5ad")
-    output: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}", "results.csv")
+        med_dist=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","medicc2_output","med_input_pairwise_distances.tsv"),
+        sconce2_hmm=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_output","model.hmm"),
+        input_ad=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad")
+    output: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}", "results.csv")
     conda: "envs/srnj.yaml"
     shell: """
     echo "Evaluating results"
@@ -215,10 +219,10 @@ rule run_evaluation:
 
 rule evaluate_sconce2_cn:
     input:
-        sconce2done=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","sconce2_output","sconce2.done"),
-        input_ad=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","input.h5ad")
+        sconce2done=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_output","sconce2.done"),
+        input_ad=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad")
     output:
-        os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}", "cn_eval.csv")
+        os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}", "cn_eval.csv")
     conda: "envs/srnj.yaml"
     shell: """
     echo "Evaluating SCONCE2 CN calls"
@@ -231,8 +235,8 @@ rule evaluate_sconce2_cn:
 
 rule summarize_sconce2_failures:
     input:
-        sconce2_done=expand( os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","sconce2_output","sconce2.done"),
-            replicate=range(REPEATS),n_cells=N_CELLS_LIST,n_bins=N_BINS_LIST,n_clones=N_CLONES_LIST,lamda=LAMDA_LIST,n_chrom=N_CHROM_LIST
+        sconce2_done=expand( os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_output","sconce2.done"),
+            replicate=range(REPEATS),n_cells=N_CELLS_LIST,n_bins=N_BINS_LIST,n_clones=N_CLONES_LIST,lamda=LAMDA_LIST,n_chrom=N_CHROM_LIST,seq_error=SEQ_ERROR_LIST
         )
     output: os.path.join(RESULTS_DIR, "sconce2_failures.txt")
     conda: "envs/srnj.yaml"
@@ -243,41 +247,41 @@ rule summarize_sconce2_failures:
 
 rule summarize_cn_eval:
     input:
-        cn_metrics=expand(os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}","cn_eval.csv"),
-            replicate=range(REPEATS),n_cells=N_CELLS_LIST,n_bins=N_BINS_LIST,n_clones=N_CLONES_LIST,lamda=LAMDA_LIST,n_chrom=N_CHROM_LIST
+        cn_metrics=expand(os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","cn_eval.csv"),
+            replicate=range(REPEATS),n_cells=N_CELLS_LIST,n_bins=N_BINS_LIST,n_clones=N_CLONES_LIST,lamda=LAMDA_LIST,n_chrom=N_CHROM_LIST,seq_error=SEQ_ERROR_LIST
         )
     output: os.path.join(RESULTS_DIR,"cn_eval_summary.csv")
     conda: "envs/srnj.yaml"
     shell: """
     echo "Summarizing CN evaluation results"
-    echo "seed,n_cells,n_bins,n_clones,lamda,n_chrom,$(head -n 1 {input.cn_metrics[0]})" > {output}
+    echo "seed,n_cells,n_bins,n_clones,lamda,n_chrom,seq_error,$(head -n 1 {input.cn_metrics[0]})" > {output}
     for f in {input.cn_metrics}; do
         d=$(basename $(dirname $f))
-        IFS="_" read r n m k l c <<< "${{d#R}}"
-        awk -F',' -v OFS=',' -v r=$r -v n=$n -v m=$m -v k=$k -v l=$l -v c=$c \
-            'NR>1 {{print r,n,m,k,l,c,$0}}' $f >> {output}
+        IFS="_" read r n m k l c e <<< "${{d#R}}"
+        e=${{e#E}}
+        awk -F',' -v OFS=',' -v r=$r -v n=$n -v m=$m -v k=$k -v l=$l -v c=$c -v e=$e \
+            'NR>1 {{print r,n,m,k,l,c,e,$0}}' $f >> {output}
     done
     """
 
 rule summarize_tree_metrics:
     input:
-        tree_metrics=expand(os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}", "results.csv"),
-            replicate=range(REPEATS),n_cells=N_CELLS_LIST,n_bins=N_BINS_LIST,n_clones=N_CLONES_LIST,lamda=LAMDA_LIST,n_chrom=N_CHROM_LIST
+        tree_metrics=expand(os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}", "results.csv"),
+            replicate=range(REPEATS),n_cells=N_CELLS_LIST,n_bins=N_BINS_LIST,n_clones=N_CLONES_LIST,lamda=LAMDA_LIST,n_chrom=N_CHROM_LIST,seq_error=SEQ_ERROR_LIST
         )
     output:os.path.join(RESULTS_DIR,"stats.csv")
     conda: "envs/srnj.yaml"
     shell: r"""
-    # summarize results into a single csv file with columns: seed, n_cells, n_bins, n_clones, lamda, n_chrom, and the columns from the individual results.csv files
     echo "Summarizing results into a single CSV file"
-    echo "seed,n_cells,n_bins,n_clones,lamda,n_chrom,$(head -n 1 {input.tree_metrics[0]})" > {output}
+    echo "seed,n_cells,n_bins,n_clones,lamda,n_chrom,seq_error,$(head -n 1 {input.tree_metrics[0]})" > {output}
     for f in {input.tree_metrics}; do
       d=$(basename "$(dirname "$f")")
-      IFS="_" read r n m k l c <<< "${{d#R}}"
-      n=${{n#N}}; m=${{m#M}}; k=${{k#K}}; l=${{l#L}}; c=${{c#C}}
-    
-      awk -F'\t' -v OFS=',' -v r=$r -v n=$n -v m=$m -v k=$k -v l=$l -v c=$c '
+      IFS="_" read r n m k l c e <<< "${{d#R}}"
+      n=${{n#N}}; m=${{m#M}}; k=${{k#K}}; l=${{l#L}}; c=${{c#C}}; e=${{e#E}}
+
+      awk -F'\t' -v OFS=',' -v r=$r -v n=$n -v m=$m -v k=$k -v l=$l -v c=$c -v e=$e '
         NR>1 {{
-          printf "%s,%s,%s,%s,%s,%s", r,n,m,k,l,c
+          printf "%s,%s,%s,%s,%s,%s,%s", r,n,m,k,l,c,e
           for (i=1;i<=NF;i++) printf "%s%s", OFS, $i
           printf "\n"
         }}' "$f" >> {output}
@@ -289,6 +293,7 @@ rule plot_tree_metrics:
     input: os.path.join(RESULTS_DIR,"stats.csv")
     output: os.path.join(RESULTS_DIR,"plots.png")
     shell: """
+    module load R/4.4 2>/dev/null || true
     Rscript {SCRIPTS}/plot_results.R {input} {output}
     """
 
@@ -297,5 +302,6 @@ rule plot_cn_eval:
     output: os.path.join(RESULTS_DIR,"cn_eval_plots.png")
     conda: "envs/srnj.yaml"
     shell: """
+    module load R/4.4 2>/dev/null || true
     Rscript {SCRIPTS}/plot_cn_eval.R {input} {output}
     """
