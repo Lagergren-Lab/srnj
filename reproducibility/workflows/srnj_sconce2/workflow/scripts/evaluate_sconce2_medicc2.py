@@ -149,10 +149,12 @@ def main():
     sconce2_obs_X = X[[obs_idx[t] for t in sconce2_taxa]]
     med2_obs_X   = X[[obs_idx[t] for t in med2_taxa]]
     sconce2_nll_selector = matrix_selection_strategy(
-        selection_matrices_from_cn(sconce2_C, sconce2_A, sconce2_obs_X, healthy_X)["nll"])
+        selection_matrices_from_cn(sconce2_C, sconce2_A, sconce2_obs_X, healthy_X)["nll"],
+        taxa=sconce2_taxa)
     med2_C_tmp, med2_A_tmp = get_lca_from_pairwise(med2_D, med2_rootdist)
     med2_nll_selector = matrix_selection_strategy(
-        selection_matrices_from_cn(med2_C_tmp, med2_A_tmp, med2_obs_X, healthy_X)["nll"])
+        selection_matrices_from_cn(med2_C_tmp, med2_A_tmp, med2_obs_X, healthy_X)["nll"],
+        taxa=med2_taxa)
 
     # ensure taxa match
     assert set(sconce2_taxa) == set(gt_taxa), f"Some SCONCE2 taxa not in ground truth\n\tGT: {gt_taxa}\n\tSCONCE2: {sconce2_taxa}"

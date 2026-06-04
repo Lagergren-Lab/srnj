@@ -48,6 +48,7 @@ def matrix_selection_strategy(
     oracle_matrix: Optional[np.ndarray] = None,
     stats: Optional[dict] = None,
     distance_matrices: Optional[Tuple[np.ndarray, np.ndarray]] = None,
+    taxa: Optional[list] = None,
 ) -> Callable:
     """Return an orienting-leaf selector that picks leaves by argmin of a precomputed matrix.
 
@@ -84,12 +85,20 @@ def matrix_selection_strategy(
     C_mat = A_mat = None
     if distance_matrices is not None:
         C_mat, A_mat = distance_matrices
+    # If taxa labels are strings (or any non-integer), build a label→index map.
+    label_map = {t: i for i, t in enumerate(taxa)} if taxa is not None else None
 
     def _select(leavesA, leavesB, taxon, dist_matrix) -> tuple:
         leavesA = sorted(list(leavesA))
         leavesB = sorted(list(leavesB))
-        dA = selection_matrix[taxon, leavesA]
-        dB = selection_matrix[taxon, leavesB]
+        if label_map is not None:
+            idx_taxon = label_map[taxon]
+            idx_A = [label_map[l] for l in leavesA]
+            idx_B = [label_map[l] for l in leavesB]
+        else:
+            idx_taxon, idx_A, idx_B = taxon, leavesA, leavesB
+        dA = selection_matrix[idx_taxon, idx_A]
+        dB = selection_matrix[idx_taxon, idx_B]
         min_dA = np.min(dA)
         min_dB = np.min(dB)
         # break ties deterministically by picking the smallest taxon label
@@ -99,8 +108,8 @@ def matrix_selection_strategy(
         ortB = min(cand_B)
 
         if oracle_matrix is not None and stats is not None:
-            ref_A = oracle_matrix[taxon, leavesA]
-            ref_B = oracle_matrix[taxon, leavesB]
+            ref_A = oracle_matrix[idx_taxon, idx_A]
+            ref_B = oracle_matrix[idx_taxon, idx_B]
             ref_min_A = np.min(ref_A)
             ref_min_B = np.min(ref_B)
             ref_cand_A = {leaf for leaf, d in zip(leavesA, ref_A) if d == ref_min_A}
