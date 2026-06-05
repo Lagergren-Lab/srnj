@@ -137,9 +137,9 @@ recode_stats <- function(df) {
   )
 }
 
-stats_l5 <- read_csv("stats_k10_l5.csv", show_col_types = FALSE, na = c("","NA","None")) |>
+stats_l5 <- read_csv("stats_k7_l5.csv", show_col_types = FALSE, na = c("","NA","None")) |>
   recode_stats()
-stats_l2 <- read_csv("stats_k7_l2.csv",  show_col_types = FALSE, na = c("","NA","None")) |>
+stats_l2 <- read_csv("stats_k7_l2.csv", show_col_types = FALSE, na = c("","NA","None")) |>
   recode_stats()
 
 METRICS_3 <- c("rf_distance","quartet_distance","transfer_distance")
@@ -164,7 +164,8 @@ delta_both <- bind_rows(
 ) |>
   select(seed, n_cells, metric, tree_method, dist_method, value, lamda) |>
   pivot_wider(names_from = dist_method, values_from = value) |>
-  filter(!is.na(SCONCE2), !is.na(MEDICC2), n_cells == "100") |>
+  filter(!is.na(SCONCE2), !is.na(MEDICC2),
+         n_cells == as.character(max(as.integer(as.character(unique(n_cells))), na.rm = TRUE))) |>
   mutate(delta     = SCONCE2 - MEDICC2,
          col_label = lamda)
 
@@ -191,9 +192,10 @@ pval_lbl <- function(p) {
     ifelse(p < 0.05,  sprintf("p=%.3f", p),
                       sprintf("p=%.2f", p)))))
 }
+f3b_n <- as.character(max(as.integer(as.character(unique(stats_l5$n_cells))), na.rm = TRUE))
 f3b_dat <- prep_f3(stats_l5) |>
-  filter(n_cells == "100") |>
-  mutate(col_label = "n=100, λ=5",
+  filter(n_cells == f3b_n) |>
+  mutate(col_label = paste0("n=", f3b_n, ", λ=5"),
          metric = factor(metric, levels = METRIC_ORDER_3))
 
 # significance on this subset
@@ -464,6 +466,193 @@ fig7 <- ggplot(f7_dat, aes(x = tree_method, y = value,
         panel.spacing.x = unit(0.12, "cm"))
 
 ggsave(file.path(fig_root, "figure7_full_comparison.pdf"), fig7, width = 10, height = 7, device = cairo_pdf)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FIGURE 8 – Seq-error comparison: ε=0.02 vs ε=0.04 (appendix)
+# ══════════════════════════════════════════════════════════════════════════════
+STATS_NEW <- file.path(Sys.getenv("STATS_K7",
+  unset = "/proj/sc_ml/users/x_vitza/srnj_results/srnj_sconce2_K7/stats.csv"))
+
+if (file.exists(STATS_NEW)) {
+  recode_stats_se <- function(df) {
+    df |> mutate(
+      tree_method = recode(tree_method, nj = "NJ", snj = "SNJ", rnj = "DLCA-NJ",
+                            anj = "ANJ", fastme = "FastME", srnj = "SRNJ",
+                            srnj1 = "SRNJ1", srnjmaxlca = "SRNJ*"),
+      dist_method = recode(dist_method, sconce2 = "SCONCE2", med2 = "MEDICC2"),
+      n_cells     = factor(n_cells),
+      seq_error   = factor(seq_error, levels = c("0.02","0.04"),
+                            labels = c("ε=0.02 (low)", "ε=0.04 (high)")),
+      tree_method = factor(tree_method, levels = ALL_TREE_LEVELS)
+    )
+  }
+
+  stats_se <- read_csv(STATS_NEW, show_col_types = FALSE, na = c("","NA","None")) |>
+    mutate(seq_error = as.character(seq_error)) |>
+    recode_stats_se()
+
+  METRICS_8     <- c("rf_distance","quartet_distance","transfer_distance","triplet_distance")
+  METRIC_LABS_8 <- c(rf_distance       = "RF Distance",
+                     quartet_distance  = "Quartet Distance",
+                     transfer_distance = "Transfer Distance",
+                     triplet_distance  = "Triplet Distance")
+
+  F8_LAMBDA <- 5   # fix λ=5 for seq-error comparison
+  f8_n_max  <- as.character(max(as.integer(as.character(unique(stats_se$n_cells))), na.rm = TRUE))
+
+  f8_dat <- stats_se |>
+    filter(lamda == F8_LAMBDA,
+           n_cells %in% c("50", f8_n_max),
+           tree_method %in% ALL_TREE_LEVELS) |>
+    pivot_longer(all_of(METRICS_8), names_to = "metric", values_to = "value") |>
+    mutate(metric     = factor(metric, levels = METRICS_8,
+                                labels = unname(METRIC_LABS_8)),
+           dist_method = factor(dist_method, levels = c("SCONCE2","MEDICC2")),
+           col_label  = paste0("n=", n_cells, ", λ=", F8_LAMBDA, ", ", seq_error))
+
+  fig8 <- ggplot(f8_dat, aes(x = tree_method, y = value,
+                              fill = tree_method, alpha = dist_method,
+                              colour = dist_method)) +
+    geom_boxplot(linewidth = 0.3, outlier.shape = NA,
+                 position = position_dodge2(width = 0.8, preserve = "single")) +
+    facet_grid(metric ~ col_label, scales = "free_y") +
+    scale_fill_manual(values   = ALL_COLORS, name = "Method") +
+    scale_colour_manual(values = c(SCONCE2 = "grey20", MEDICC2 = "grey60"), name = "Tool") +
+    scale_alpha_manual(values  = c(SCONCE2 = 0.9, MEDICC2 = 0.4), name = "Tool") +
+    labs(x = NULL, y = "Tree Distance") +
+    guides(fill   = guide_legend(nrow = 1, override.aes = list(alpha = 0.85, colour = "grey30")),
+           alpha  = guide_legend(nrow = 1),
+           colour = guide_legend(nrow = 1)) +
+    theme_paper() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5.5),
+          panel.spacing.x = unit(0.12, "cm"))
+
+  ggsave(file.path(fig_root, "figure8_seq_error.pdf"), fig8, width = 10, height = 7, device = cairo_pdf)
+} else {
+  message("Skipping Figure 8: stats file not found at ", STATS_NEW)
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FIGURE 9 – Orienting-leaf selection: tree distances per strategy
+# ══════════════════════════════════════════════════════════════════════════════
+ORT_METRICS_CSV <- Sys.getenv("ORT_METRICS_CSV", unset = "ort_metrics.csv")
+
+if (file.exists(ORT_METRICS_CSV)) {
+  ORT_STRATEGY_LEVELS <- c(
+    "dlca_nj", "srnj_min_D", "srnj_max_lca",
+    "gt_min", "gt_max_lca",
+    "hamming", "hamming_max_lca",
+    "nll", "nll_max_lca"
+  )
+  ORT_STRATEGY_LABELS <- c(
+    dlca_nj         = "DLCA-NJ",
+    srnj_min_D      = "SRNJ (min d)",
+    srnj_max_lca    = "SRNJ (max LCA)",
+    gt_min          = "GT (min d)",
+    gt_max_lca      = "GT (max LCA)",
+    hamming         = "Hamming (min d)",
+    hamming_max_lca = "Hamming (max LCA)",
+    nll             = "NLL (min d)",
+    nll_max_lca     = "NLL (max LCA)"
+  )
+  ORT_COLORS <- c(
+    dlca_nj         = "#595959",
+    srnj_min_D      = "#1F4E79",
+    srnj_max_lca    = "#7FA8D0",
+    gt_min          = "#B2182B",
+    gt_max_lca      = "#EF8A8A",
+    hamming         = "#1B7837",
+    hamming_max_lca = "#7FBF7B",
+    nll             = "#762A83",
+    nll_max_lca     = "#C2A5CF"
+  )
+  ORT_METRIC_LEVELS <- c("rf_distance","quartet_distance","triplet_distance","transfer_distance")
+  ORT_METRIC_LABELS <- c(
+    rf_distance       = "RF Distance",
+    quartet_distance  = "Quartet Distance",
+    triplet_distance  = "Triplet Distance",
+    transfer_distance = "Transfer Distance"
+  )
+
+  ort_metrics <- read_csv(ORT_METRICS_CSV, show_col_types = FALSE,
+                           na = c("","NA","None")) |>
+    filter(metric %in% ORT_METRIC_LEVELS, !is.na(dist)) |>
+    mutate(
+      strategy = factor(strategy, levels = ORT_STRATEGY_LEVELS),
+      metric   = factor(metric, levels = ORT_METRIC_LEVELS,
+                        labels = unname(ORT_METRIC_LABELS[ORT_METRIC_LEVELS])),
+      n_cells  = factor(n_cells, levels = sort(unique(as.integer(n_cells))))
+    ) |>
+    filter(!is.na(strategy))
+
+  n_ncells_ort <- nlevels(droplevels(ort_metrics$n_cells))
+  n_metrics_ort <- nlevels(droplevels(ort_metrics$metric))
+
+  # ── Significance brackets: NLL(min d) vs GT(min d) and NLL(min d) vs Hamming(min d)
+  # Brackets are drawn in the "pre-flip" coordinate system:
+  #   x  = strategy position (numeric, on the discrete axis)
+  #   y  = dist (will become the horizontal axis after coord_flip)
+  # Strategy positions in rev(ORT_STRATEGY_LEVELS): nll=2, hamming=4, gt_min=6
+  ort_sig <- ort_metrics |>
+    group_by(metric, n_cells) |>
+    summarise(
+      y_max    = max(dist, na.rm = TRUE),
+      p_nll_gt  = suppressWarnings(
+        wilcox.test(dist[strategy == "nll"], dist[strategy == "gt_min"],
+                    paired = TRUE)$p.value),
+      p_nll_ham = suppressWarnings(
+        wilcox.test(dist[strategy == "nll"], dist[strategy == "hamming"],
+                    paired = TRUE)$p.value),
+      .groups = "drop"
+    ) |>
+    mutate(
+      lbl_gt  = ifelse(is.na(p_nll_gt),  "ns",
+                ifelse(p_nll_gt  < 0.001, sprintf("p=%.2e", p_nll_gt),
+                ifelse(p_nll_gt  < 0.05,  sprintf("p=%.3f", p_nll_gt), "ns"))),
+      lbl_ham = ifelse(is.na(p_nll_ham), "ns",
+                ifelse(p_nll_ham < 0.001, sprintf("p=%.2e", p_nll_ham),
+                ifelse(p_nll_ham < 0.05,  sprintf("p=%.3f", p_nll_ham), "ns"))),
+      # bracket heights (on dist axis, extended beyond y_max)
+      y1 = y_max * 1.06,
+      y2 = y_max * 1.14,
+      # strategy x positions (numeric in rev order: 1=nll_max_lca,2=nll,4=hamming,6=gt_min)
+      x_nll = 2, x_ham = 4, x_gt = 6
+    )
+
+  # build segment data: two brackets per facet cell
+  ort_segs <- bind_rows(
+    ort_sig |> mutate(x1 = x_nll, x2 = x_gt,  y = y1, label = lbl_gt,  comparison = "nll_vs_gt"),
+    ort_sig |> mutate(x1 = x_nll, x2 = x_ham, y = y2, label = lbl_ham, comparison = "nll_vs_ham")
+  )
+
+  fig9 <- ggplot(ort_metrics, aes(x = strategy, y = dist,
+                                   fill = strategy, colour = strategy)) +
+    geom_boxplot(alpha = 0.75, outlier.shape = NA, linewidth = 0.3) +
+    geom_beeswarm(size = 0.45, alpha = 0.55, cex = 0.5) +
+    geom_segment(data = ort_segs,
+                 aes(x = x1, xend = x2, y = y, yend = y),
+                 inherit.aes = FALSE, linewidth = 0.3, colour = "grey30") +
+    geom_text(data = ort_segs,
+              aes(x = (x1 + x2) / 2, y = y * 1.03, label = label),
+              inherit.aes = FALSE, size = 1.8, colour = "grey20") +
+    facet_grid(metric ~ n_cells, scales = "free_x",
+               labeller = labeller(n_cells = \(x) paste0("n=", x))) +
+    scale_fill_manual(values = ORT_COLORS) +
+    scale_colour_manual(values = ORT_COLORS) +
+    scale_x_discrete(limits = rev(ORT_STRATEGY_LEVELS),
+                     labels = ORT_STRATEGY_LABELS) +
+    coord_flip() +
+    labs(x = NULL, y = "Distance") +
+    theme_paper() +
+    theme(legend.position = "none")
+
+  ggsave(file.path(fig_root, "figure9_ort_selection.pdf"), fig9,
+         width = max(7, 1.9 * n_ncells_ort),
+         height = 1.9 * n_metrics_ort + 0.8,
+         device = cairo_pdf)
+} else {
+  message("Skipping Figure 9: ", ORT_METRICS_CSV, " not found")
+}
 
 message("All figures written.")
 
