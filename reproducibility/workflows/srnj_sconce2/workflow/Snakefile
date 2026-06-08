@@ -156,6 +156,51 @@ rule run_sconce2:
     {SCONCE2} -d {input.healthy_avg_bed} -t {input.tumor_file_list} --meanVarCoefFile {input.mean_var_coef_file} -k {params.k} -o {params.output_dir}/model --saveSconce --summarizeAll --numPairsToSummarize {KAPPA} -j {threads} --sconceEstimatesPath {params.output_dir}/ --pairedEstimatesPath {params.output_dir}/ > {params.output_dir}/sconce2.log 2> {params.output_dir}/sconce2.err && (echo "success" > {output.done}) || (echo "failure" > {output.done}; touch {output.hmm})
     """
 
+rule export_hmmcopy_matrix:
+    input:
+        adata=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad")
+    output:
+        d_mat=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","d_mat.txt"),
+        chrom_lengths=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","chrom_lengths.txt")
+    conda: "envs/srnj.yaml"
+    shell: """
+    echo "Exporting read-count matrix for HMMcopy"
+    PYTHONPATH={SOURCE_PATH}/src python {SCRIPTS}/export_hmmcopy_matrix.py \
+        --input {input.adata} \
+        --output {output.d_mat} \
+        --chrom-lengths-output {output.chrom_lengths}
+    """
+
+rule hmm_copy_inference:
+    input:
+        d_mat=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","d_mat.txt"),
+        chrom_lengths=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","chrom_lengths.txt")
+    output:
+        inferred=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_output","hmmcopy_inferred.txt")
+    params:
+        l_per_copy=lambda wc: int(wc.lamda)
+    conda: "envs/hmmcopy.yaml"
+    shell: """
+    echo "Running HMMcopy inference"
+    mkdir -p $(dirname {output.inferred})
+    Rscript {SCRIPTS}/HMMCopyInference.R {input.d_mat} {output.inferred} {params.l_per_copy} "$(cat {input.chrom_lengths})"
+    """
+
+rule hmmcopy_to_medicc2_input:
+    input:
+        inferred=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_output","hmmcopy_inferred.txt"),
+        adata=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad")
+    output:
+        medicc2_input=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_medicc2_input","med_input.tsv")
+    conda: "envs/srnj.yaml"
+    shell: """
+    echo "Converting HMMcopy CN profiles to MEDICC2 input"
+    PYTHONPATH={SOURCE_PATH}/src python {SCRIPTS}/hmmcopy_to_medicc2_input.py \
+        --inferred {input.inferred} \
+        --input-ad {input.adata} \
+        --output {output.medicc2_input}
+    """
+
 rule prepare_medicc2_input:
     input:
         sconce2_done=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_output","sconce2.done")
@@ -179,18 +224,17 @@ rule prepare_medicc2_input:
     """
 
 rule run_medicc2:
-    # use sconce2 cn profiles as input to medicc2
+    # use hmmcopy cn profiles as input to medicc2
     input:
-        medicc2_input=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","medicc2_input","med_input.tsv")
+        medicc2_input=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_medicc2_input","med_input.tsv")
     output:
-        distmat=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","medicc2_output","med_input_pairwise_distances.tsv")
+        distmat=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_medicc2_output","med_input_pairwise_distances.tsv")
     benchmark: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","benchmark_run_medicc2.tsv")
     params:
         output_dir=subpath(output.distmat,parent=True)
     threads: 8
     conda: "envs/medicc2.yaml"
     shell: """
-    # if medicc2_input is empty, skip running medicc2 and write empty distance matrix
     if [ ! -s {input.medicc2_input} ]; then
         echo "MEDICC2 input file is empty, skipping MEDICC2 and writing empty distance matrix"
         mkdir -p $(dirname {output.distmat})
@@ -203,7 +247,7 @@ rule run_medicc2:
 
 rule run_evaluation:
     input:
-        med_dist=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","medicc2_output","med_input_pairwise_distances.tsv"),
+        med_dist=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_medicc2_output","med_input_pairwise_distances.tsv"),
         sconce2_hmm=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_output","model.hmm"),
         input_ad=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad")
     output: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}", "results.csv")

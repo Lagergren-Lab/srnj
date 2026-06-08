@@ -1,0 +1,8 @@
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - r-base
+  - r-data.table=1.17.8
+  - bioconductor-hmmcopy=1.52
