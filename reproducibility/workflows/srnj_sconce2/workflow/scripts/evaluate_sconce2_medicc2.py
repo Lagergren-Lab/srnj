@@ -156,9 +156,33 @@ def main():
         selection_matrices_from_cn(med2_C_tmp, med2_A_tmp, med2_obs_X, healthy_X)["nll"],
         taxa=med2_taxa)
 
-    # ensure taxa match
-    assert set(sconce2_taxa) == set(gt_taxa), f"Some SCONCE2 taxa not in ground truth\n\tGT: {gt_taxa}\n\tSCONCE2: {sconce2_taxa}"
-    assert set(med2_taxa) == set(gt_taxa), f"Some MEDICC2 taxa not in ground truth\n\tGT: {gt_taxa}\n\tMEDICC2: {med2_taxa}"
+    # Use SCONCE2 taxa as the working set — SCONCE2 may miss cells whose pairwise
+    # HMM fitting did not converge. Prune GT and subset MEDICC2 to match.
+    common_taxa = [t for t in sconce2_taxa if t in set(gt_taxa)]
+    if len(common_taxa) < len(gt_taxa):
+        n_missing = len(gt_taxa) - len(common_taxa)
+        print(f"Warning: {n_missing} GT cells absent from SCONCE2 pairwise HMM; "
+              f"restricting evaluation to {len(common_taxa)} common taxa")
+        common_set = set(common_taxa)
+        taxa_to_prune = [leaf.taxon for leaf in gt_dtree.leaf_node_iter()
+                         if leaf.taxon.label not in common_set]
+        gt_dtree.prune_taxa(taxa_to_prune, suppress_unifurcations=False)
+        gt_dtree.purge_taxon_namespace()
+        root_label = gt_dtree.seed_node.label
+        gt_taxa = [leaf.taxon.label for leaf in gt_dtree.leaf_nodes()]
+
+    # Subset MEDICC2 distance matrix to common taxa
+    med2_idx = [med2_taxa.index(t) for t in common_taxa]
+    med2_D = med2_D[np.ix_(med2_idx, med2_idx)]
+    med2_rootdist = med2_rootdist[med2_idx]
+    med2_taxa = [med2_taxa[i] for i in med2_idx]
+    # Recompute med2 NLL selector on the filtered matrix
+    med2_obs_X = X[[obs_idx[t] for t in med2_taxa]]
+    med2_C_filt, med2_A_filt = get_lca_from_pairwise(med2_D, med2_rootdist)
+    med2_nll_selector = matrix_selection_strategy(
+        selection_matrices_from_cn(med2_C_filt, med2_A_filt, med2_obs_X, healthy_X)["nll"],
+        taxa=med2_taxa)
+
     print("Building distance matrices...")
     # make DistanceProviders
     sconce2_D, sconce2_rootdist = get_pairwise_from_lca(sconce2_C, sconce2_A)
