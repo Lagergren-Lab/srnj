@@ -64,7 +64,7 @@ def main() -> None:
                 "chrom": chr_names[j],
                 "start": int(starts[j]),
                 "end": int(ends[j]),
-                "cn": int(inferred[i, j]),
+                "total_cn": int(inferred[i, j]),
             })
 
     df = pd.DataFrame(rows)
