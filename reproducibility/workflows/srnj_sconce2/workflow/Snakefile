@@ -51,7 +51,7 @@ NORMAL_FRACTION = 0.2
 REPEATS = config.get("REPEATS", 3)
 # sconce2 params
 SCONCE2_K = config.get("SCONCE2_K", 10)
-KAPPA = 10
+KAPPA = config.get("KAPPA", 0)  # 0 = all pairs (default)
 SEQ_ERROR_LIST = config.get("SEQ_ERROR", [0.02, 0.04])
 
 wildcard_constraints:

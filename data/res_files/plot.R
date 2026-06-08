@@ -87,7 +87,7 @@ fig1 <- ggplot(f1_dat, aes(x = method, y = dist, colour = method, fill = method)
   geom_boxplot(alpha = 0.25, outlier.shape = NA, linewidth = 0.4) +
   geom_beeswarm(size = 0.8, alpha = 0.7, cex = 0.6) +
   facet_grid(metric ~ n_cells, scales = "free_y",
-             labeller = labeller(n_cells = \(x) paste0("n=", x))) +
+             labeller = labeller(n_cells = \(x) paste0("N=",x))) +
   scale_colour_manual(values = METHOD_COLORS) +
   scale_fill_manual(values = METHOD_COLORS) +
   labs(x = NULL, y = "Distance") +
@@ -107,7 +107,7 @@ f2_dat <- inhouse |>
 fig2 <- ggplot(f2_dat, aes(x = method, y = dist, colour = method, fill = method)) +
   geom_boxplot(alpha = 0.25, outlier.shape = NA, linewidth = 0.4) +
   geom_beeswarm(size = 1, alpha = 0.75, cex = 0.7) +
-  facet_grid(. ~ n_cells, labeller = labeller(n_cells = \(x) paste0("n=", x))) +
+  facet_grid(. ~ n_cells, labeller = labeller(n_cells = \(x) paste0("N=",x))) +
   scale_colour_manual(values = METHOD_COLORS) +
   scale_fill_manual(values = METHOD_COLORS) +
   labs(x = NULL, y = "Root-split Distance") +
@@ -141,6 +141,9 @@ stats_l5 <- read_csv("stats_k7_l5.csv", show_col_types = FALSE, na = c("","NA","
   recode_stats()
 stats_l2 <- read_csv("stats_k7_l2.csv", show_col_types = FALSE, na = c("","NA","None")) |>
   recode_stats()
+
+STATS_NEW <- file.path(Sys.getenv("STATS_K7",
+  unset = "/proj/sc_ml/users/x_vitza/srnj_results/srnj_sconce2_K7/stats.csv"))
 
 METRICS_3 <- c("rf_distance","quartet_distance","transfer_distance")
 METRIC_LABS_3 <- c(rf_distance = "RF Distance", quartet_distance = "Quartet Distance",
@@ -192,11 +195,23 @@ pval_lbl <- function(p) {
     ifelse(p < 0.05,  sprintf("p=%.3f", p),
                       sprintf("p=%.2f", p)))))
 }
-f3b_n <- as.character(max(as.integer(as.character(unique(stats_l5$n_cells))), na.rm = TRUE))
-f3b_dat <- prep_f3(stats_l5) |>
-  filter(n_cells == f3b_n) |>
-  mutate(col_label = paste0("n=", f3b_n, ", λ=5"),
-         metric = factor(metric, levels = METRIC_ORDER_3))
+f3b_dat <- if (file.exists(STATS_NEW)) {
+  read_csv(STATS_NEW, show_col_types = FALSE, na = c("","NA","None")) |>
+    recode_stats() |>
+    filter(as.character(n_cells) == "100", lamda == 5,
+           as.character(seq_error) == "0.02",
+           tree_method %in% ALL_TREE_LEVELS) |>
+    pivot_longer(all_of(METRICS_3), names_to = "metric", values_to = "value") |>
+    mutate(metric      = factor(METRIC_LABS_3[metric], levels = METRIC_ORDER_3),
+           dist_method = factor(dist_method, levels = c("SCONCE2","MEDICC2")),
+           col_label   = "N=100, λ=5")
+} else {
+  f3b_n <- as.character(max(as.integer(as.character(unique(stats_l5$n_cells))), na.rm = TRUE))
+  prep_f3(stats_l5) |>
+    filter(n_cells == f3b_n) |>
+    mutate(col_label = paste0("N=", f3b_n, ", λ=5"),
+           metric    = factor(metric, levels = METRIC_ORDER_3))
+}
 
 # significance on this subset
 sig_wide_b <- f3b_dat |>
@@ -429,24 +444,20 @@ METRIC_LABS_7 <- c(rf_distance       = "RF Distance",
                    transfer_distance = "Transfer Distance",
                    triplet_distance  = "Triplet Distance")
 
-f7_dat <- bind_rows(
-  prep_f3(stats_l2) |> mutate(lamda = "λ=2"),
-  prep_f3(stats_l5) |> mutate(lamda = "λ=5")
-) |>
-  # re-pivot to include all 4 metrics (prep_f3 only kept 3)
-  select(-value, -metric) |> distinct() |>
-  left_join(
-    bind_rows(
-      stats_l2 |> mutate(lamda = "λ=2"),
-      stats_l5 |> mutate(lamda = "λ=5")
-    ) |>
-      filter(n_cells %in% c("50","100"), tree_method %in% ALL_TREE_LEVELS) |>
-      pivot_longer(all_of(METRICS_7), names_to = "metric", values_to = "value") |>
-      mutate(metric = factor(metric, levels = METRICS_7, labels = unname(METRIC_LABS_7)),
-             dist_method = factor(dist_method, levels = c("SCONCE2","MEDICC2"))),
-    by = c("seed","n_cells","tree_method","dist_method","lamda")
-  ) |>
-  mutate(col_label = paste0("n=", n_cells, ", ", lamda))
+f7_dat <- read_csv(STATS_NEW, show_col_types = FALSE, na = c("","NA","None")) |>
+  recode_stats() |>
+  filter(as.character(n_cells) %in% c("50","100"),
+         as.character(seq_error) == "0.02",
+         tree_method %in% ALL_TREE_LEVELS) |>
+  pivot_longer(all_of(METRICS_7), names_to = "metric", values_to = "value") |>
+  mutate(
+    metric      = factor(metric, levels = METRICS_7, labels = unname(METRIC_LABS_7)),
+    dist_method = factor(dist_method, levels = c("SCONCE2","MEDICC2")),
+    lamda       = paste0("λ=", lamda),
+    col_label   = factor(paste0("N=",n_cells, ", ", lamda),
+                         levels = c("N=50, λ=2","N=50, λ=5",
+                                    "N=100, λ=2","N=100, λ=5"))
+  )
 
 fig7 <- ggplot(f7_dat, aes(x = tree_method, y = value,
                             fill = tree_method, alpha = dist_method,
@@ -465,14 +476,13 @@ fig7 <- ggplot(f7_dat, aes(x = tree_method, y = value,
   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5.5),
         panel.spacing.x = unit(0.12, "cm"))
 
-ggsave(file.path(fig_root, "figure7_full_comparison.pdf"), fig7, width = 10, height = 7, device = cairo_pdf)
+n_f7_cols <- length(unique(f7_dat$col_label))
+ggsave(file.path(fig_root, "figure7_full_comparison.pdf"), fig7,
+       width = max(10, 1.8 * n_f7_cols), height = 7, device = cairo_pdf)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 8 – Seq-error comparison: ε=0.02 vs ε=0.04 (appendix)
 # ══════════════════════════════════════════════════════════════════════════════
-STATS_NEW <- file.path(Sys.getenv("STATS_K7",
-  unset = "/proj/sc_ml/users/x_vitza/srnj_results/srnj_sconce2_K7/stats.csv"))
-
 if (file.exists(STATS_NEW)) {
   recode_stats_se <- function(df) {
     df |> mutate(
@@ -508,7 +518,14 @@ if (file.exists(STATS_NEW)) {
     mutate(metric     = factor(metric, levels = METRICS_8,
                                 labels = unname(METRIC_LABS_8)),
            dist_method = factor(dist_method, levels = c("SCONCE2","MEDICC2")),
-           col_label  = paste0("n=", n_cells, ", λ=", F8_LAMBDA, ", ", seq_error))
+           col_label  = factor(
+             paste0("N=",n_cells, ", λ=", F8_LAMBDA, ", ", seq_error),
+             levels = c(
+               paste0("N=50, λ=",      F8_LAMBDA, ", ε=0.02 (low)"),
+               paste0("N=50, λ=",      F8_LAMBDA, ", ε=0.04 (high)"),
+               paste0("N=",f8_n_max, ", λ=", F8_LAMBDA, ", ε=0.02 (low)"),
+               paste0("N=",f8_n_max, ", λ=", F8_LAMBDA, ", ε=0.04 (high)")
+             )))
 
   fig8 <- ggplot(f8_dat, aes(x = tree_method, y = value,
                               fill = tree_method, alpha = dist_method,
@@ -527,7 +544,9 @@ if (file.exists(STATS_NEW)) {
     theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5.5),
           panel.spacing.x = unit(0.12, "cm"))
 
-  ggsave(file.path(fig_root, "figure8_seq_error.pdf"), fig8, width = 10, height = 7, device = cairo_pdf)
+  n_f8_cols <- length(unique(f8_dat$col_label))
+  ggsave(file.path(fig_root, "figure8_seq_error.pdf"), fig8,
+         width = max(10, 1.8 * n_f8_cols), height = 7, device = cairo_pdf)
 } else {
   message("Skipping Figure 8: stats file not found at ", STATS_NEW)
 }
@@ -636,7 +655,7 @@ if (file.exists(ORT_METRICS_CSV)) {
               aes(x = (x1 + x2) / 2, y = y * 1.03, label = label),
               inherit.aes = FALSE, size = 1.8, colour = "grey20") +
     facet_grid(metric ~ n_cells, scales = "free_x",
-               labeller = labeller(n_cells = \(x) paste0("n=", x))) +
+               labeller = labeller(n_cells = \(x) paste0("N=",x))) +
     scale_fill_manual(values = ORT_COLORS) +
     scale_colour_manual(values = ORT_COLORS) +
     scale_x_discrete(limits = rev(ORT_STRATEGY_LEVELS),
