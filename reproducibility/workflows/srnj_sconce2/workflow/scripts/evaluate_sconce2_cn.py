@@ -4,7 +4,7 @@ import numpy as np
 import os
 import sys
 
-from utils.evaluation.benchmarking import get_sconce2_cn_matrix
+from sparsernj.utils.evaluation.benchmarking import get_sconce2_cn_matrix
 
 
 def main():

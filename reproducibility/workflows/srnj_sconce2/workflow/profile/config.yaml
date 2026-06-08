@@ -1,18 +1,19 @@
 executor: slurm
-jobs: 60
+jobs: 100
 cores: 960
+latency-wait: 60
 
 use-conda: true
 conda-prefix: "/proj/sc_ml/shared/envs"
 
 set-threads:
-  run_sconce2: 8
+  run_sconce2: 32
   run_medicc2: 8
 
 set-resources:
   run_sconce2:
     runtime: 1000
-    mem_mb: 24000
+    mem_mb: 93000
   run_medicc2:
     runtime: 1000
     mem_mb: 24000
@@ -20,4 +21,4 @@ set-resources:
 default-resources:
   mem_mb_per_cpu: 4000
   runtime: 30
-  slurm_account: "naiss2025-22-1610"
+  slurm_account: "naiss2026-3-168"

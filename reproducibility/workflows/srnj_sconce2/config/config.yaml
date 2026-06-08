@@ -1,10 +1,11 @@
 # SCONCE2 paths (defaults to external/sconce2/ in project root if not specified)
 # Uncomment and modify these lines if you have SCONCE2 installed elsewhere:
-# SCONCE2_EXEC: "/path/to/your/sconce2/sconce2"
-# SCONCE2_SCRIPTS: "/path/to/your/sconce2/scripts"
+SCONCE2_EXEC: "/home/x_vitza/software/sconce2/sconce2"
+SCONCE2_SCRIPTS: "/home/x_vitza/software/sconce2/scripts"
 
-RESULTS_DIR: "../../../output/snakemake_results/" # change this if you want results in a different directory
+RESULTS_DIR: "results"
 REPEATS: 20
 N_CELLS: [20, 50, 100]
-SCONCE2_K: 10
+SCONCE2_K: 7
+SEQ_ERROR: [0.02, 0.04]
 

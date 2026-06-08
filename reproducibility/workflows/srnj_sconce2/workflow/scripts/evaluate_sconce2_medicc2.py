@@ -13,11 +13,12 @@ import numpy as np
 import dendropy as dpy
 
 from sparsernj import sparse_rnj, sparse_nj, get_lca_from_pairwise, get_pairwise_from_lca
-from utils.evaluation.benchmarking import get_sconce2_split_dist, get_medicc2_dist
-from utils.algorithms.neighbor_joining import dlca_nj, anj, std_nj_root
+from sparsernj.utils.evaluation.benchmarking import get_sconce2_split_dist, get_medicc2_dist
+from sparsernj.utils.algorithms.neighbor_joining import dlca_nj, anj, std_nj_root
 from sparsernj.distance_provider import FixedDistanceProvider
-from utils.tree_utils import convert_networkx_to_dendropy, normalized_quartet_distance, \
+from sparsernj.utils.tree_utils import convert_networkx_to_dendropy, normalized_quartet_distance, \
     normalized_rf_distance, transfer_distance, normalized_triplet_distance, normalized_root_split_distance
+from sparsernj.ort_selection import selection_matrices_from_cn, matrix_selection_strategy
 
 
 def parse_args():
@@ -139,6 +140,22 @@ def main():
 
     gt_taxa = [leaf.taxon.label for leaf in gt_dtree.leaf_nodes()]
 
+    # build NLL (min-d) orienting-leaf selectors from raw read counts in the h5ad
+    print("Building NLL orienting-leaf selectors...")
+    X = adata.X.toarray() if hasattr(adata.X, 'toarray') else np.asarray(adata.X, dtype=float)
+    normal_names = {t.label for t in normal_taxa}
+    obs_idx = {name: i for i, name in enumerate(adata.obs_names)}
+    healthy_X = X[[obs_idx[n] for n in normal_names if n in obs_idx]]
+    sconce2_obs_X = X[[obs_idx[t] for t in sconce2_taxa]]
+    med2_obs_X   = X[[obs_idx[t] for t in med2_taxa]]
+    sconce2_nll_selector = matrix_selection_strategy(
+        selection_matrices_from_cn(sconce2_C, sconce2_A, sconce2_obs_X, healthy_X)["nll"],
+        taxa=sconce2_taxa)
+    med2_C_tmp, med2_A_tmp = get_lca_from_pairwise(med2_D, med2_rootdist)
+    med2_nll_selector = matrix_selection_strategy(
+        selection_matrices_from_cn(med2_C_tmp, med2_A_tmp, med2_obs_X, healthy_X)["nll"],
+        taxa=med2_taxa)
+
     # ensure taxa match
     assert set(sconce2_taxa) == set(gt_taxa), f"Some SCONCE2 taxa not in ground truth\n\tGT: {gt_taxa}\n\tSCONCE2: {sconce2_taxa}"
     assert set(med2_taxa) == set(gt_taxa), f"Some MEDICC2 taxa not in ground truth\n\tGT: {gt_taxa}\n\tMEDICC2: {med2_taxa}"
@@ -205,16 +222,16 @@ def main():
         taxon_namespace=gt_dtree.taxon_namespace, internal_nodes_label='int'
     )
 
-    print("Building SRNJ...")
-    # SRNJ trees
+    print("Building SRNJ (NLL min-d)...")
+    # SRNJ trees — default ort strategy is NLL (min-d)
     sconce2_dp.reset_call_count()
     med2_dp.reset_call_count()
     sconce2_srnj_dtree = convert_networkx_to_dendropy(
-        sparse_rnj(sconce2_dp, root_label=root_label),
+        sparse_rnj(sconce2_dp, root_label=root_label, ort_selector=sconce2_nll_selector),
         taxon_namespace=gt_dtree.taxon_namespace, internal_nodes_label='int'
     )
     med2_srnj_dtree = convert_networkx_to_dendropy(
-        sparse_rnj(med2_dp, root_label=root_label),
+        sparse_rnj(med2_dp, root_label=root_label, ort_selector=med2_nll_selector),
         taxon_namespace=gt_dtree.taxon_namespace, internal_nodes_label='int'
     )
 

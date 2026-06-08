@@ -2,6 +2,65 @@
 > code for reproducing the results of the paper "Scalable and robust phylogenetic tree
 > reconstruction from copy number data with Sparse Rooted Neighbor Joining" by Zampinetti V. et al.
 
+## Using SparseRNJ as a library
+
+Install the package with pip:
+```bash
+pip install -e .            # development install from repo root
+# or
+pip install sparsernj       # once published to PyPI
+```
+
+### Providing your own distance estimator
+
+Subclass `DistanceProvider` and implement a single method —
+`_compute_triplet(taxon1, taxon2) -> (lca, adm_fwd, adm_rev)` — where
+- **lca** is the LCA distance `C[i, j]` (symmetric),
+- **adm_fwd** is the asymmetric distance `A[taxon1, taxon2]` (taxon1 → their LCA),
+- **adm_rev** is `A[taxon2, taxon1]` (taxon2 → their LCA).
+
+Caching, call-counting, and `get_dms()` are inherited automatically.
+
+```python
+from sparsernj import DistanceProvider, sparse_rnj
+
+class CellmatesProvider(DistanceProvider):
+    def __init__(self, cells, estimator):
+        super().__init__(taxa=list(range(len(cells))))
+        self.cells = cells
+        self.estimator = estimator
+
+    def _compute_triplet(self, i, j):
+        # estimator.triplet_distance returns (lca, adm_fwd, adm_rev)
+        return self.estimator.triplet_distance(self.cells[i], self.cells[j])
+
+tree = sparse_rnj(CellmatesProvider(cells, estimator))  # returns nx.DiGraph
+```
+
+If your estimator produces pairwise distances + per-cell root distances instead,
+use `get_lca_from_pairwise(D, root_dist)` to convert to `(C, A)` and then wrap
+them in a `FixedDistanceProvider`.
+
+### Using custom orienting-leaf selection
+
+```python
+from sparsernj import sparse_rnj, FixedDistanceProvider
+from sparsernj.ort_selection import selection_matrices_from_cn, matrix_selection_strategy
+
+# build selection matrices from observed CN profiles and healthy baseline
+mats = selection_matrices_from_cn(C, A, observed_cn, healthy_cn)
+# pick a strategy and create a selector callable
+selector = matrix_selection_strategy(mats["hamming"])
+# run SRNJ with all leaves passed to the selector (cheap proxy — no distance cost)
+tree = sparse_rnj(provider, ort_selector=selector, all_leaves=True)
+```
+
+Available built-in strategy names: `"min_D"` (default) and `"max_lca"`.
+`selection_matrices_from_cn` returns matrices for: `gt_min`, `gt_max_lca`,
+`hamming`, `hamming_max_lca`, `nll`, `nll_max_lca`.
+
+---
+
 ## Experiment with in-house CN data
 
 This experiment can be run executing the script in `reproducibility/experiments/sparse_nj_accuracy.py`
@@ -36,6 +95,34 @@ python reproducibility/experiments/sparse_nj_accuracy.py --demo
 ```
 The `--demo` flag runs a quick validation with reduced parameters,
 while omitting it will execute the full evaluation across all parameter ranges (> 45').
+
+## Orienting-leaf selection experiment (CNAsim)
+
+This experiment benchmarks different orienting-leaf selection heuristics on CNAsim
+tumour data.  It compares the ground-truth oracle (`gt_min`, `gt_max_lca`) against
+cheap copy-number proxies (`hamming`, `hamming_max_lca`, `nll`, `nll_max_lca`).
+
+### Requirements
+
+All dependencies are included in `environment.yml` (CNASim, msprime) plus the same
+tqDist / Booster binaries listed above.  Transfer-distance is silently skipped if
+`booster_linux64` is not in PATH.
+
+### Execution
+```bash
+# quick demo (n=20, 50; 3 seeds)
+python reproducibility/experiments/ort_selection/ort_selection_accuracy.py --demo
+
+# full run
+python reproducibility/experiments/ort_selection/ort_selection_accuracy.py \
+    --n-cells 50 100 200 --seeds 0 1 2 3 4 5 6 7 8 9
+
+# generate figures (from the output directory)
+ORT_METRICS_CSV=<path>/ort_metrics.csv \
+ORT_ACCURACY_CSV=<path>/ort_selection_accuracy.csv \
+ORT_FIG_ROOT=<path> \
+Rscript reproducibility/experiments/ort_selection/plot.R
+```
 
 ## Experiment with CNAsim data
 
@@ -121,13 +208,22 @@ python ./reproducibility/experiments/breast10x/breast_data_sconce2.py
 
 ```
 src/
-├── sparsernj/          # core SparseRNJ implementation
-├── utils/              # tree utilities and algorithms
-└── utils/evaluation/   # benchmarking and metrics
+└── sparsernj/              # pip-installable package
+    ├── distance_provider.py  # DistanceProvider base + FixedDistanceProvider / LazyDistanceProvider
+    ├── ort_selection.py      # matrix-based selection strategies (selection_matrices_from_cn, etc.)
+    ├── sparse_rnj.py         # SRNJ algorithm (sparse_rnj)
+    ├── sparse_nj.py          # SNJ algorithm (unrooted variant)
+    ├── treenode.py           # Tree / UTree data structures
+    └── utils/                # tree utilities and algorithms (formerly top-level utils/)
 
 reproducibility/
-├── experiments/        # synthetic and real data experiments scripts
-└── workflows/          # snakemake pipeline for experiment with SCONCE2 and MEDICC2 (CNAsim data)
+├── experiments/
+│   ├── sparse_nj_accuracy.py           # synthetic data experiment
+│   ├── ort_selection/                  # orienting-leaf selection experiment
+│   │   ├── ort_selection_accuracy.py
+│   │   └── plot.R
+│   └── breast10x/                      # real 10x data experiment
+└── workflows/                          # snakemake pipeline (SCONCE2 + MEDICC2)
 
 scripts/                # setup and utility scripts
 tests/                  # unit tests

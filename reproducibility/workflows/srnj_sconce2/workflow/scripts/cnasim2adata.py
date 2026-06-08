@@ -16,7 +16,7 @@ import anndata
 
 # Import tree parsing functions from srnj source
 sys.path.insert(0, os.path.abspath("../../../../../src"))
-from utils.tree_utils import newick_to_nx
+from sparsernj.utils.tree_utils import newick_to_nx
 
 # ==================================
 # Main functions (read CNAsim files)

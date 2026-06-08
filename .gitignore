@@ -26,3 +26,14 @@ external/
 # Users scripts in the root directory
 *.sh
 *.py
+results
+
+# Figures and plots
+*.pdf
+*.png
+
+# Python packaging artifacts
+*.egg-info/
+
+# Workflow result data (large simulation outputs)
+reproducibility/workflows/srnj_sconce2/results_K7/data/
