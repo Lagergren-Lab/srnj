@@ -23,9 +23,9 @@ external/
 # Snakemake
 **/.snakemake/
 
-# Users scripts in the root directory
-*.sh
-*.py
+# Users scripts in the root directory only (leading / anchors to repo root)
+/*.sh
+/*.py
 results
 
 # Figures and plots
