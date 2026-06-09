@@ -128,9 +128,13 @@ ALL_COLORS      <- METHOD_COLORS[ALL_TREE_LEVELS]
 # helper to recode a raw stats csv
 recode_stats <- function(df) {
   df |> mutate(
-    tree_method = recode(tree_method, nj = "NJ", snj = "SNJ", rnj = "DLCA-NJ",
-                          anj = "ANJ", fastme = "FastME", srnj = "SRNJ",
-                          srnj1 = "SRNJ1", srnjmaxlca = "SRNJ*"),
+    tree_method = recode(tree_method,
+      nj = "NJ", snj = "SNJ",
+      rnj = "DLCA-NJ", dlca_nj = "DLCA-NJ",       # old label | new label
+      anj = "ANJ", fastme = "FastME",
+      srnj = "SRNJ", srnj1 = "SRNJ1",
+      srnjmaxlca = "SRNJ*", srnj_maxlca = "SRNJ*"  # old label | new label
+    ),
     dist_method = recode(dist_method, sconce2 = "SCONCE2", med2 = "MEDICC2"),
     n_cells     = factor(n_cells),
     tree_method = factor(tree_method, levels = ALL_TREE_LEVELS)

@@ -255,14 +255,14 @@ def main():
     med2_nj_rf = None
     # make all combinations of method and tree type
     combos = [
-        ('sconce2_nj', sconce2_nj_dtree), ('med2_nj', med2_nj_dtree),
-        ('sconce2_snj', sconce2_snj_dtree), ('med2_snj', med2_snj_dtree),
-        ('sconce2_rnj', sconce2_rnj_dtree), ('med2_rnj', med2_rnj_dtree),
-        ('sconce2_anj', sconce2_anj_dtree), ('med2_anj', med2_anj_dtree),
-        ('sconce2_fastme', sconce2_fastme_dtree), ('med2_fastme', med2_fastme_dtree),
-        ('sconce2_srnj1', sconce2_srnj1_dtree), ('med2_srnj1', med2_srnj1_dtree),
-        ('sconce2_srnj', sconce2_srnj_dtree), ('med2_srnj', med2_srnj_dtree),
-        ('sconce2_srnjmaxlca', sconce2_srnj_maxlca_dtree), ('med2_srnjmaxlca', med2_srnj_maxlca_dtree),
+        ('sconce2_nj',          sconce2_nj_dtree),           ('med2_nj',          med2_nj_dtree),
+        ('sconce2_snj',         sconce2_snj_dtree),          ('med2_snj',         med2_snj_dtree),
+        ('sconce2_dlca_nj',     sconce2_rnj_dtree),          ('med2_dlca_nj',     med2_rnj_dtree),
+        ('sconce2_anj',         sconce2_anj_dtree),          ('med2_anj',         med2_anj_dtree),
+        ('sconce2_fastme',      sconce2_fastme_dtree),       ('med2_fastme',      med2_fastme_dtree),
+        ('sconce2_srnj1',       sconce2_srnj1_dtree),        ('med2_srnj1',       med2_srnj1_dtree),
+        ('sconce2_srnj',        sconce2_srnj_dtree),         ('med2_srnj',        med2_srnj_dtree),
+        ('sconce2_srnj_maxlca', sconce2_srnj_maxlca_dtree), ('med2_srnj_maxlca', med2_srnj_maxlca_dtree),
     ]
     for method, dtree in combos:
         print(f"Evaluating {method} tree...")
@@ -278,7 +278,7 @@ def main():
         rsd = normalized_root_split_distance(gt_dtree_collapsed, dtree)
         if method == 'med2_nj':
             med2_nj_rf = rfd  # save for later comparison with medicc2 original tree
-        dist_method, tree_method = method.split('_')
+        dist_method, tree_method = method.split('_', 1)  # maxsplit=1: handles dlca_nj, srnj_maxlca
         line = f"{dist_method},{tree_method},{qd:.4f},{rfd:.4f},{td:.4f},{trip_d:.4f},{rsd:.4f}"
         eval_results.append(line)
 

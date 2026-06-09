@@ -166,9 +166,9 @@ def run_experiment(demo=False) -> (str, str):
     methods_order = [
         "nj",
         "dlca_nj",
-        "srnj1",        # sparse rnj with k=1 (srnj1)
-        "srnj",         # sparse rnj with default k (srnj)
-        "srnj_maxlca",  # sparse rnj with max_lca strategy
+        "srnj1",        # SRNJ k=1, no ort selector
+        "srnj",         # SRNJ default k, min_D ort selector (distance-based; no CN profiles here)
+        "srnj_maxlca",  # SRNJ default k, max_lca ort strategy
         "snj",
         "fastme",
         "anj",
@@ -231,7 +231,7 @@ def run_experiment(demo=False) -> (str, str):
                 elif method == "srnj":
                     dist_matrix.reset_call_count()
                     t0 = time.perf_counter()
-                    nx_tree = sparse_rnj(dist_matrix)
+                    nx_tree = sparse_rnj(dist_matrix, ort_selector='min_D')
                     t_elapsed = time.perf_counter() - t0
                     num_calls = dist_matrix.num_calls
                     est_time = t_elapsed + num_calls * TIME_PAIRWISE_DIST
