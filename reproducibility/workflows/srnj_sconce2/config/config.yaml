@@ -9,3 +9,8 @@ N_CELLS: [20, 50, 100]
 SCONCE2_K: 7
 SEQ_ERROR: [0.02, 0.04]
 
+# CN source fed into MEDICC2: "hmmcopy" (default) or "sconce2"
+# Switch by editing this line, or override on the command line:
+#   snakemake --config CN_SOURCE=sconce2
+CN_SOURCE: "hmmcopy"
+

@@ -39,6 +39,36 @@ if not os.path.exists(SCONCE2_SCRIPTS_PATH):
 
 SCRIPTS = "workflow/scripts/"
 SOURCE_PATH = PROJECT_ROOT  # Use detected project root
+
+# CN source for MEDICC2: "hmmcopy" (default) or "sconce2"
+# Switch by setting CN_SOURCE in config.yaml or on the command line:
+#   snakemake --config CN_SOURCE=sconce2
+CN_SOURCE = config.get("CN_SOURCE", "hmmcopy")
+
+def _data_prefix(wc):
+    return os.path.join(RESULTS_DIR, "data",
+        f"R{wc.replicate}_N{wc.n_cells}_M{wc.n_bins}_K{wc.n_clones}_L{wc.lamda}_C{wc.n_chrom}_E{wc.seq_error}")
+
+def medicc2_input_tsv(wc):
+    """Return the medicc2 input TSV path for the configured CN source."""
+    p = _data_prefix(wc)
+    if CN_SOURCE == "sconce2":
+        return os.path.join(p, "medicc2_input", "med_input.tsv")
+    return os.path.join(p, "hmmcopy_medicc2_input", "med_input.tsv")
+
+def medicc2_dist_tsv(wc):
+    """Return the medicc2 pairwise-distance TSV path for the configured CN source."""
+    p = _data_prefix(wc)
+    if CN_SOURCE == "sconce2":
+        return os.path.join(p, "medicc2_output", "med_input_pairwise_distances.tsv")
+    return os.path.join(p, "hmmcopy_medicc2_output", "med_input_pairwise_distances.tsv")
+
+def medicc2_output_dir(wc):
+    p = _data_prefix(wc)
+    if CN_SOURCE == "sconce2":
+        return os.path.join(p, "medicc2_output")
+    return os.path.join(p, "hmmcopy_medicc2_output")
+
 # fix parameters
 N_BINS_LIST = [1000]  # 1000 bins
 N_CELLS_LIST = config.get("N_CELLS", [20])
@@ -224,36 +254,36 @@ rule prepare_medicc2_input:
     """
 
 rule run_medicc2:
-    # use hmmcopy cn profiles as input to medicc2
+    # CN_SOURCE controls input: "hmmcopy" (default) or "sconce2"
     input:
-        medicc2_input=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_medicc2_input","med_input.tsv")
+        medicc2_input=medicc2_input_tsv
     output:
-        distmat=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_medicc2_output","med_input_pairwise_distances.tsv")
+        distmat=medicc2_dist_tsv
     benchmark: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","benchmark_run_medicc2.tsv")
     params:
-        output_dir=subpath(output.distmat,parent=True)
+        output_dir=medicc2_output_dir
     threads: 8
     conda: "envs/medicc2.yaml"
     shell: """
     if [ ! -s {input.medicc2_input} ]; then
         echo "MEDICC2 input file is empty, skipping MEDICC2 and writing empty distance matrix"
-        mkdir -p $(dirname {output.distmat})
+        mkdir -p {params.output_dir}
         touch {output.distmat}
         exit 0
     fi
-    echo "Running MEDICC2"
+    echo "Running MEDICC2 (CN_SOURCE={CN_SOURCE})"
     medicc2 {input.medicc2_input} {params.output_dir} -j {threads} --plot auto --no-wgd --input-allele-columns 'total_cn' --total-copy-numbers
     """
 
 rule run_evaluation:
     input:
-        med_dist=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_medicc2_output","med_input_pairwise_distances.tsv"),
+        med_dist=medicc2_dist_tsv,
         sconce2_hmm=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_output","model.hmm"),
         input_ad=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad")
     output: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}", "results.csv")
     conda: "envs/srnj.yaml"
     shell: """
-    echo "Evaluating results"
+    echo "Evaluating results (CN_SOURCE={CN_SOURCE})"
     PYTHONPATH={SOURCE_PATH}/src python {SCRIPTS}/evaluate_sconce2_medicc2.py \
         --medicc2-dist {input.med_dist} \
         --sconce2-hmm {input.sconce2_hmm} \
