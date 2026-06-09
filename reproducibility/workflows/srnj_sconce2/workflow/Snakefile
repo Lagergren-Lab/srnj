@@ -41,33 +41,23 @@ SCRIPTS = "workflow/scripts/"
 SOURCE_PATH = PROJECT_ROOT  # Use detected project root
 
 # CN source for MEDICC2: "hmmcopy" (default) or "sconce2"
-# Switch by setting CN_SOURCE in config.yaml or on the command line:
+# Switch by editing config.yaml or on the command line:
 #   snakemake --config CN_SOURCE=sconce2
 CN_SOURCE = config.get("CN_SOURCE", "hmmcopy")
 
-def _data_prefix(wc):
-    return os.path.join(RESULTS_DIR, "data",
-        f"R{wc.replicate}_N{wc.n_cells}_M{wc.n_bins}_K{wc.n_clones}_L{wc.lamda}_C{wc.n_chrom}_E{wc.seq_error}")
+# Static wildcard-pattern strings for output/benchmark (Snakemake requires these
+# to be strings, not callables). CN_SOURCE is resolved once at DAG-build time.
+_MEDICC2_SUBDIR    = "medicc2_output"         if CN_SOURCE == "sconce2" else "hmmcopy_medicc2_output"
+_MEDICC2_IN_SUBDIR = "medicc2_input"          if CN_SOURCE == "sconce2" else "hmmcopy_medicc2_input"
+_DATA_PAT = os.path.join(RESULTS_DIR, "data",
+    "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}")
 
-def medicc2_input_tsv(wc):
-    """Return the medicc2 input TSV path for the configured CN source."""
-    p = _data_prefix(wc)
-    if CN_SOURCE == "sconce2":
-        return os.path.join(p, "medicc2_input", "med_input.tsv")
-    return os.path.join(p, "hmmcopy_medicc2_input", "med_input.tsv")
+MEDICC2_INPUT_PAT  = os.path.join(_DATA_PAT, _MEDICC2_IN_SUBDIR, "med_input.tsv")
+MEDICC2_DISTMAT_PAT = os.path.join(_DATA_PAT, _MEDICC2_SUBDIR, "med_input_pairwise_distances.tsv")
 
+# input-only helper (callable allowed for 'input:' sections)
 def medicc2_dist_tsv(wc):
-    """Return the medicc2 pairwise-distance TSV path for the configured CN source."""
-    p = _data_prefix(wc)
-    if CN_SOURCE == "sconce2":
-        return os.path.join(p, "medicc2_output", "med_input_pairwise_distances.tsv")
-    return os.path.join(p, "hmmcopy_medicc2_output", "med_input_pairwise_distances.tsv")
-
-def medicc2_output_dir(wc):
-    p = _data_prefix(wc)
-    if CN_SOURCE == "sconce2":
-        return os.path.join(p, "medicc2_output")
-    return os.path.join(p, "hmmcopy_medicc2_output")
+    return MEDICC2_DISTMAT_PAT.format(**wc)
 
 # fix parameters
 N_BINS_LIST = [1000]  # 1000 bins
@@ -254,14 +244,16 @@ rule prepare_medicc2_input:
     """
 
 rule run_medicc2:
-    # CN_SOURCE controls input: "hmmcopy" (default) or "sconce2"
+    # CN_SOURCE controls which CN profiles feed MEDICC2: "hmmcopy" (default) or "sconce2"
     input:
-        medicc2_input=medicc2_input_tsv
+        medicc2_input=MEDICC2_INPUT_PAT
     output:
-        distmat=medicc2_dist_tsv
+        distmat=MEDICC2_DISTMAT_PAT
     benchmark: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","benchmark_run_medicc2.tsv")
     params:
-        output_dir=medicc2_output_dir
+        output_dir=lambda wc: os.path.join(RESULTS_DIR,"data",
+            f"R{wc.replicate}_N{wc.n_cells}_M{wc.n_bins}_K{wc.n_clones}_L{wc.lamda}_C{wc.n_chrom}_E{wc.seq_error}",
+            _MEDICC2_SUBDIR)
     threads: 8
     conda: "envs/medicc2.yaml"
     shell: """
