@@ -13,6 +13,8 @@ def main():
     parser.add_argument("--sconce2-done", type=str, required=True, help="Path to SCONCE2 completion file, that is assumed to be in the folder with CN calls in .bed files. ")
     parser.add_argument("--output", type=str, required=True, help="Path to output CSV file for evaluation results")
     parser.add_argument("-k", type=str, default='5', help="k value used in SCONCE2 CN calling, to match the correct bed files")
+    parser.add_argument("--hmmcopy-inferred", type=str, default=None,
+                        help="Path to hmmcopy_inferred.txt (space-delimited integer matrix, cells × bins, same cell order as input.h5ad tumor cells)")
     args = parser.parse_args()
 
     adata_tot = anndata.read_h5ad(args.input_ad)
@@ -84,6 +86,35 @@ def main():
                 f.write(header + '\n')
         with open(args.output, 'a') as f:
             f.write(values + '\n')
+
+    if args.hmmcopy_inferred and os.path.exists(args.hmmcopy_inferred):
+        hmmcopy_cn = np.loadtxt(args.hmmcopy_inferred, dtype=int)
+        print(f"HMMcopy CN matrix shape: {hmmcopy_cn.shape}")
+        if hmmcopy_cn.shape != gt_cn.shape:
+            print(f"HMMcopy shape mismatch: {hmmcopy_cn.shape} vs ground truth {gt_cn.shape}. Skipping HMMcopy eval.")
+        else:
+            euclidean_dist = np.linalg.norm(hmmcopy_cn.astype(float) - gt_cn.astype(float), axis=1)
+            hamming_dist = np.sum(hmmcopy_cn != gt_cn, axis=1)
+            s2_dist = np.sum((hmmcopy_cn.astype(float) - gt_cn.astype(float))**2, axis=1)
+            results = {
+                'k': args.k,
+                'cn_type': 'hmmcopy',
+                'euclidean_dist_avg': np.mean(euclidean_dist),
+                'euclidean_dist_std': np.std(euclidean_dist),
+                'euclidean_dist_min': np.min(euclidean_dist),
+                'euclidean_dist_max': np.max(euclidean_dist),
+                'hamming_dist_avg': np.mean(hamming_dist),
+                'hamming_dist_std': np.std(hamming_dist),
+                'hamming_dist_min': np.min(hamming_dist),
+                'hamming_dist_max': np.max(hamming_dist),
+                's2_dist_avg': np.mean(s2_dist),
+                's2_dist_std': np.std(s2_dist),
+                's2_dist_min': np.min(s2_dist),
+                's2_dist_max': np.max(s2_dist)
+            }
+            values = ','.join(str(v) for v in results.values())
+            with open(args.output, 'a') as f:
+                f.write(values + '\n')
 
 if __name__ == "__main__":
     main()

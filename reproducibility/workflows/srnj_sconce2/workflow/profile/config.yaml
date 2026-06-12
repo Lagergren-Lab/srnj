@@ -8,15 +8,15 @@ conda-prefix: "/proj/sc_ml/shared/envs"
 
 set-threads:
   run_sconce2: 32
-  run_medicc2: 8
+  run_medicc2: 16
 
 set-resources:
   run_sconce2:
-    runtime: 1000
-    mem_mb: 93000
+    runtime: 720
+    mem_mb: 96000
   run_medicc2:
-    runtime: 1000
-    mem_mb: 24000
+    runtime: 400
+    mem_mb: 40000
 
 default-resources:
   mem_mb_per_cpu: 4000

@@ -49,6 +49,10 @@ CN_SOURCE = config.get("CN_SOURCE", "hmmcopy")
 # to be strings, not callables). CN_SOURCE is resolved once at DAG-build time.
 _MEDICC2_SUBDIR    = "medicc2_output"         if CN_SOURCE == "sconce2" else "hmmcopy_medicc2_output"
 _MEDICC2_IN_SUBDIR = "medicc2_input"          if CN_SOURCE == "sconce2" else "hmmcopy_medicc2_input"
+
+# Suffix for results.csv / stats.csv so runs with different CN_SOURCE coexist
+# in the same RESULTS_DIR without overwriting each other.
+_RESULTS_SUFFIX = "_cn_sconce2" if CN_SOURCE == "sconce2" else ""
 _DATA_PAT = os.path.join(RESULTS_DIR, "data",
     "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}")
 
@@ -73,6 +77,7 @@ REPEATS = config.get("REPEATS", 3)
 SCONCE2_K = config.get("SCONCE2_K", 10)
 KAPPA = config.get("KAPPA", 0)  # 0 = all pairs (default)
 SEQ_ERROR_LIST = config.get("SEQ_ERROR", [0.02, 0.04])
+COVERAGE = config.get("COVERAGE", 0.1)  # sequencing coverage; CNAsim default is 0.1
 
 wildcard_constraints:
     replicate=r"\d+",
@@ -88,12 +93,25 @@ wildcard_constraints:
 
 rule all:
     input:
-        os.path.join(RESULTS_DIR, 'stats.csv'),
+        os.path.join(RESULTS_DIR, f'stats{_RESULTS_SUFFIX}.csv'),
         os.path.join(RESULTS_DIR, 'plots.png'),
         os.path.join(RESULTS_DIR, 'cn_eval_plots.png'),
         os.path.join(RESULTS_DIR, 'sconce2_failures.txt')
 
 rule simulate_cnasim:
+    # NOTE on downstream SCONCE2 emission model quality:
+    # CNAsim generates read counts with a Poisson model (no overdispersion). All normal
+    # cells are fully diploid, so every bin has the same expected depth (≈ coverage × bin_length).
+    # The downstream prepare_sconce2_input rule feeds these diploid cells to fitMeanVarRlnshp.R,
+    # which fits a 3-parameter NB variance polynomial (var = a + b·mean + c·mean²). Because all
+    # diploid windows share the same mean depth, the fit is evaluated at a single point on the
+    # mean axis: the quadratic term c is effectively unidentifiable and the optimizer typically
+    # returns slope b < 1. This causes var < mean at the CN=2 emission lambda, triggering
+    # SCONCE2's r < 1 fallback (geometric distribution, r=1) for the most common CN state.
+    # The fallback broadens the CN=2 emission ~100-fold relative to Poisson, weakening
+    # stage-1 parameter estimation. A varied fit panel spanning multiple CN depths (as used in
+    # the xcellmates/total_cn_comparison experiments) would resolve this, but requires synthetic
+    # normal cells at different depths rather than the actual CNAsim diploid cells.
     output:
         counts=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","cnasim_tmp","readcounts.tsv")
     conda: "envs/cnasim.yaml"
@@ -107,11 +125,21 @@ rule simulate_cnasim:
         chrom_length=lambda wc: int(int(wc.n_bins) * BIN_LENGTH / int(wc.n_chrom)),
         normal_frac=lambda wc: NORMAL_FRACTION,
         seq_error=lambda wc: float(wc.seq_error),
+        coverage=COVERAGE,
         out_dir=subpath(output.counts,parent=True)
     shell: """
     cnasim -m 1 --use-uniform-coverage -n {params.n_cells} -c {params.n_clones} \
      -p1 {params.lamda} -o {params.out_dir} -N {params.n_chrom} -L {params.chrom_length} -n1 {params.normal_frac} \
-     -B {BIN_LENGTH} --cn-length-mean {CN_LENGTH_MEAN} --cn-copy-param 0.8 -S {params.seq_error}
+     -B {BIN_LENGTH} --cn-length-mean {CN_LENGTH_MEAN} --cn-copy-param 0.8 -S {params.seq_error} \
+     --coverage {params.coverage} \
+    || {{
+        # CNAsim has a rare bug where record_events() crashes with a TypeError on
+        # certain random seeds (e.start stored as str). record_events writes only
+        # focal_events.tsv, which is not used downstream. If readcounts.tsv was
+        # already written before the crash, treat the job as successful.
+        if [ ! -f "{output.counts}" ]; then exit 1; fi
+        echo "WARNING: cnasim exited non-zero but readcounts.tsv exists; ignoring record_events bug"
+    }}
     """
 
 rule prepare_anndata:
@@ -161,6 +189,13 @@ rule run_sconce2:
     params:
         output_dir=subpath(output.done,parent=True),
         k=SCONCE2_K
+    resources:
+        # O(N²) pair scaling from observed N=20 wall times (3–13 min, mean 7 min).
+        # Profile set-resources overrides this, so remove runtime from there.
+        runtime = lambda wc: (40  if int(wc.n_cells) <=  20 else
+                              120  if int(wc.n_cells) <=  50 else
+                              720  if int(wc.n_cells) <= 100 else
+                              1000)
     threads: 8
     shell: """
     # Check if SCONCE2 binary exists and is executable
@@ -181,29 +216,30 @@ rule export_hmmcopy_matrix:
         adata=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad")
     output:
         d_mat=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","d_mat.txt"),
-        chrom_lengths=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","chrom_lengths.txt")
+        chrom_lengths=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","chrom_lengths.txt"),
+        l_per_copy=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","l_per_copy.txt")
     conda: "envs/srnj.yaml"
     shell: """
     echo "Exporting read-count matrix for HMMcopy"
     PYTHONPATH={SOURCE_PATH}/src python {SCRIPTS}/export_hmmcopy_matrix.py \
         --input {input.adata} \
         --output {output.d_mat} \
-        --chrom-lengths-output {output.chrom_lengths}
+        --chrom-lengths-output {output.chrom_lengths} \
+        --l-per-copy-output {output.l_per_copy}
     """
 
 rule hmm_copy_inference:
     input:
         d_mat=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","d_mat.txt"),
-        chrom_lengths=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","chrom_lengths.txt")
+        chrom_lengths=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","chrom_lengths.txt"),
+        l_per_copy=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","l_per_copy.txt")
     output:
         inferred=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_output","hmmcopy_inferred.txt")
-    params:
-        l_per_copy=lambda wc: int(wc.lamda)
     conda: "envs/hmmcopy.yaml"
     shell: """
     echo "Running HMMcopy inference"
     mkdir -p $(dirname {output.inferred})
-    Rscript {SCRIPTS}/HMMCopyInference.R {input.d_mat} {output.inferred} {params.l_per_copy} "$(cat {input.chrom_lengths})"
+    Rscript {SCRIPTS}/HMMCopyInference.R {input.d_mat} {output.inferred} "$(cat {input.l_per_copy})" "$(cat {input.chrom_lengths})"
     """
 
 rule hmmcopy_to_medicc2_input:
@@ -272,7 +308,7 @@ rule run_evaluation:
         med_dist=medicc2_dist_tsv,
         sconce2_hmm=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_output","model.hmm"),
         input_ad=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad")
-    output: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}", "results.csv")
+    output: os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}", f"results{_RESULTS_SUFFIX}.csv")
     conda: "envs/srnj.yaml"
     shell: """
     echo "Evaluating results (CN_SOURCE={CN_SOURCE})"
@@ -286,15 +322,17 @@ rule run_evaluation:
 rule evaluate_sconce2_cn:
     input:
         sconce2done=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_output","sconce2.done"),
-        input_ad=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad")
+        input_ad=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad"),
+        hmmcopy_inferred=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_output","hmmcopy_inferred.txt")
     output:
         os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}", "cn_eval.csv")
     conda: "envs/srnj.yaml"
     shell: """
-    echo "Evaluating SCONCE2 CN calls"
+    echo "Evaluating SCONCE2 and HMMcopy CN calls"
     PYTHONPATH={SOURCE_PATH}/src python {SCRIPTS}/evaluate_sconce2_cn.py \
         --input-ad {input.input_ad} \
         --sconce2-done {input.sconce2done} \
+        --hmmcopy-inferred {input.hmmcopy_inferred} \
         --output {output} \
         -k {SCONCE2_K}
     """
@@ -332,10 +370,10 @@ rule summarize_cn_eval:
 
 rule summarize_tree_metrics:
     input:
-        tree_metrics=expand(os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}", "results.csv"),
+        tree_metrics=expand(os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}", f"results{_RESULTS_SUFFIX}.csv"),
             replicate=range(REPEATS),n_cells=N_CELLS_LIST,n_bins=N_BINS_LIST,n_clones=N_CLONES_LIST,lamda=LAMDA_LIST,n_chrom=N_CHROM_LIST,seq_error=SEQ_ERROR_LIST
         )
-    output:os.path.join(RESULTS_DIR,"stats.csv")
+    output:os.path.join(RESULTS_DIR, f"stats{_RESULTS_SUFFIX}.csv")
     conda: "envs/srnj.yaml"
     shell: r"""
     echo "Summarizing results into a single CSV file"
@@ -370,4 +408,55 @@ rule plot_cn_eval:
     shell: """
     module load R/4.4 2>/dev/null || true
     Rscript {SCRIPTS}/plot_cn_eval.R {input} {output}
+    """
+
+# ---------------------------------------------------------------------------
+# CN comparison visualisation (optional, not in rule all)
+# Run with: snakemake results/cn_comparison_summary.pdf
+# ---------------------------------------------------------------------------
+
+rule plot_cn_comparison:
+    input:
+        adata=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","input.h5ad"),
+        sconce2_done=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","sconce2_output","sconce2.done"),
+        hmmcopy_inferred=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_output","hmmcopy_inferred.txt"),
+        chrom_lengths=os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","hmmcopy_input","chrom_lengths.txt"),
+    output:
+        os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","cn_comparison.pdf"),
+    params:
+        sconce2_dir=lambda wildcards, input: os.path.dirname(str(input.sconce2_done)),
+        dataset_name=lambda wildcards: (
+            f"R{wildcards.replicate}_N{wildcards.n_cells}_M{wildcards.n_bins}"
+            f"_K{wildcards.n_clones}_L{wildcards.lamda}"
+            f"_C{wildcards.n_chrom}_E{wildcards.seq_error}"
+        ),
+    conda: "envs/srnj.yaml"
+    shell: """
+    PYTHONPATH={SOURCE_PATH}/src python {SCRIPTS}/plot_cn_comparison.py \
+        --input-ad {input.adata} \
+        --sconce2-dir {params.sconce2_dir} \
+        --hmmcopy-inferred {input.hmmcopy_inferred} \
+        --chrom-lengths {input.chrom_lengths} \
+        --output {output} \
+        --dataset-name "{params.dataset_name}" \
+        -k {SCONCE2_K}
+    """
+
+rule cn_comparison_summary:
+    input:
+        expand(
+            os.path.join(RESULTS_DIR,"data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_C{n_chrom}_E{seq_error}","cn_comparison.pdf"),
+            replicate=range(REPEATS), n_cells=N_CELLS_LIST, n_bins=N_BINS_LIST,
+            n_clones=N_CLONES_LIST, lamda=LAMDA_LIST, n_chrom=N_CHROM_LIST,
+            seq_error=SEQ_ERROR_LIST,
+        )
+    output:
+        os.path.join(RESULTS_DIR,"cn_comparison_summary.pdf"),
+    conda: "envs/srnj.yaml"
+    shell: """
+    python {SCRIPTS}/make_cn_comparison_summary.py \
+        --pdfs {input} \
+        --output {output} \
+        --dpi 80 \
+        --rows-per-page 4
     """

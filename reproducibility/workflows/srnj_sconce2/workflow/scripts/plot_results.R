@@ -26,8 +26,8 @@ df_long$seq_error <- as.factor(df_long$seq_error)
 df_long$method_combo <- interaction(df_long$tree_method, df_long$dist_method, sep = "_")
 
 # ── Figure 1: main boxplot (all n_cells, faceted by metric × n_cells) ─────────
-my_comparisons <- list(c("rnj_sconce2", "rnj_med2"),
-                       c("nj_sconce2",  "rnj_sconce2"))
+my_comparisons <- list(c("dlca_nj_sconce2", "dlca_nj_med2"),
+                       c("nj_sconce2",     "dlca_nj_sconce2"))
 
 p1 <- ggplot(df_long, aes(x = method_combo, y = score, fill = dist_method)) +
   geom_boxplot(aes(alpha = tree_method), outlier.shape = NA) +
@@ -61,13 +61,19 @@ METRIC_LABS <- c(
   transfer_distance = "Transfer Distance",
   triplet_distance  = "Triplet Distance"
 )
-ALL_TREE_LEVELS <- c("nj", "rnj", "srnj", "srnjmaxlca", "anj", "fastme")
+ALL_TREE_LEVELS <- c("nj", "dlca_nj", "srnj", "srnj_maxlca", "srnj1", "anj", "fastme")
 TOOL_COLORS     <- c(sconce2 = "#E69F00", med2 = "#56B4E9")
+
+# Prefer n=50,100 for Figure 2; fall back to all available n_cells so debug runs
+# (N=20 only) still produce output without an empty-facet crash.
+preferred_n <- c("50", "100")
+plot2_n     <- intersect(preferred_n, as.character(unique(df_long$n_cells)))
+if (length(plot2_n) == 0) plot2_n <- as.character(unique(df_long$n_cells))
 
 df_long2 <- df_long %>%
   filter(
     dist_metric %in% METRICS,
-    n_cells %in% c("50", "100"),
+    n_cells %in% plot2_n,
     tree_method %in% ALL_TREE_LEVELS
   ) %>%
   mutate(

@@ -113,15 +113,24 @@ def main():
     print("Validating input...")
     args = parse_args()
     header = "dist_method,tree_method,quartet_distance,rf_distance,transfer_distance,triplet_distance,rootsplit_distance"
+    def _write_nan_output():
+        with open(args.output, 'w') as f:
+            f.write(header + '\n')
+            for method in ['sconce2', 'med2']:
+                for tree_method in ['nj', 'snj', 'dlca_nj', 'srnj', 'srnj1', 'srnj_maxlca', 'anj', 'fastme']:
+                    f.write(f"{method},{tree_method},NaN,NaN,NaN,NaN,NaN\n")
+
     # check none of the input files are empty, if so, write NaN to output and exit
     for file_path in [args.sconce2_hmm, args.medicc2_dist, args.input_ad]:
         if os.path.getsize(file_path) == 0:
             print(f"Input file {file_path} is empty. Writing NaN to output and exiting.")
-            with open(args.output, 'w') as f:
-                f.write(header + '\n')
-                for method in ['sconce2', 'med2']:
-                    for tree_method in ['nj', 'snj', 'rnj', 'srnj', 'srnj1', 'srnjmaxlca', 'anj', 'fastme']:
-                        f.write(f"{method},{tree_method},NaN,NaN,NaN,NaN,NaN\n")
+            _write_nan_output()
+            return
+    # check SCONCE2 converged (model.hmm must contain the FINAL HMM marker)
+    with open(args.sconce2_hmm) as _f:
+        if "#### FINAL HMM ####" not in _f.read():
+            print(f"SCONCE2 did not converge (no FINAL HMM marker in {args.sconce2_hmm}). Writing NaN.")
+            _write_nan_output()
             return
     # load SCONCE2 distance matrix
     sconce2_C, sconce2_A, sconce2_taxa = get_sconce2_split_dist(args.sconce2_hmm)

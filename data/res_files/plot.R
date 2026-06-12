@@ -55,8 +55,12 @@ inhouse  <- read_csv("inhouse_stats.csv", show_col_types = FALSE, na = c("","NA"
 time_df  <- read_csv("inhouse_time_estimates.csv", show_col_types = FALSE) |>
   mutate(method = recode(method, !!!method_recode))
 
-cn_eval  <- read_csv("cn_eval_summary_k7.csv", show_col_types = FALSE) |>
-  mutate(n_cells = str_extract(n_cells, "\\d+") |> as.integer())
+CN_EVAL_K7 <- Sys.getenv("CN_EVAL_K7",
+  unset = "/proj/sc_ml/users/x_vitza/srnj_results/srnj_sconce2_K7/cn_eval_summary.csv")
+
+cn_eval  <- read_csv(CN_EVAL_K7, show_col_types = FALSE) |>
+  mutate(n_cells = str_extract(n_cells, "\\d+") |> as.integer()) |>
+  filter(as.character(seq_error) == "0.02")
 
 cpu      <- read_csv("cputime_k10.csv", show_col_types = FALSE) |>
   mutate(tool = recode(tool, sconce2 = "SCONCE2", medicc2 = "MEDICC2"))
@@ -141,22 +145,28 @@ recode_stats <- function(df) {
   )
 }
 
-stats_l5 <- read_csv("stats_k7_l5.csv", show_col_types = FALSE, na = c("","NA","None")) |>
-  recode_stats()
-stats_l2 <- read_csv("stats_k7_l2.csv", show_col_types = FALSE, na = c("","NA","None")) |>
-  recode_stats()
-
 STATS_NEW <- file.path(Sys.getenv("STATS_K7",
   unset = "/proj/sc_ml/users/x_vitza/srnj_results/srnj_sconce2_K7/stats.csv"))
 
-METRICS_3 <- c("rf_distance","quartet_distance","transfer_distance")
+stats_all <- read_csv(STATS_NEW, show_col_types = FALSE, na = c("","NA","None")) |>
+  recode_stats() |>
+  filter(as.character(seq_error) == "0.02")
+stats_l5 <- stats_all |> filter(lamda == 5)
+stats_l2 <- stats_all |> filter(lamda == 2)
+
+# Use all available n so N=20 appears alongside N=50/100 when present.
+available_n <- as.character(sort(unique(as.integer(as.character(stats_all$n_cells)))))
+plot_n      <- available_n
+plot_n_max  <- as.character(max(as.integer(plot_n)))
+
+METRICS_3 <- c("rf_distance","quartet_distance","transfer_distance","rootsplit_distance")
 METRIC_LABS_3 <- c(rf_distance = "RF Distance", quartet_distance = "Quartet Distance",
-                    transfer_distance = "Transfer Distance")
-METRIC_ORDER_3 <- c("RF Distance","Quartet Distance","Transfer Distance")
+                    transfer_distance = "Transfer Distance", rootsplit_distance = "Root-split Distance")
+METRIC_ORDER_3 <- c("RF Distance","Quartet Distance","Transfer Distance","Root-split Distance")
 
 prep_f3 <- function(df) {
   df |>
-    filter(n_cells %in% c("50","100"), tree_method %in% ALL_TREE_LEVELS) |>
+    filter(n_cells %in% plot_n, tree_method %in% ALL_TREE_LEVELS) |>
     pivot_longer(all_of(METRICS_3), names_to = "metric", values_to = "value") |>
     mutate(metric      = factor(METRIC_LABS_3[metric], levels = METRIC_ORDER_3),
            dist_method = factor(dist_method, levels = c("SCONCE2","MEDICC2")))
@@ -202,13 +212,13 @@ pval_lbl <- function(p) {
 f3b_dat <- if (file.exists(STATS_NEW)) {
   read_csv(STATS_NEW, show_col_types = FALSE, na = c("","NA","None")) |>
     recode_stats() |>
-    filter(as.character(n_cells) == "100", lamda == 5,
+    filter(as.character(n_cells) == plot_n_max, lamda == 5,
            as.character(seq_error) == "0.02",
            tree_method %in% ALL_TREE_LEVELS) |>
     pivot_longer(all_of(METRICS_3), names_to = "metric", values_to = "value") |>
     mutate(metric      = factor(METRIC_LABS_3[metric], levels = METRIC_ORDER_3),
            dist_method = factor(dist_method, levels = c("SCONCE2","MEDICC2")),
-           col_label   = "N=100, λ=5")
+           col_label   = paste0("N=", plot_n_max, ", λ=5"))
 } else {
   f3b_n <- as.character(max(as.integer(as.character(unique(stats_l5$n_cells))), na.rm = TRUE))
   prep_f3(stats_l5) |>
@@ -270,12 +280,15 @@ fig3b <- ggplot(f3b_dat, aes(x = tree_method, y = value,
   theme_paper() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 6))
 
-ggsave(file.path(fig_root, "figure3a_delta.pdf"), fig3a, width = 5.5, height = 6.5, device = cairo_pdf)
-ggsave(file.path(fig_root, "figure3b_tools.pdf"), fig3b, width = 3.0, height = 6.5, device = cairo_pdf)
+ggsave(file.path(fig_root, "figure3a_delta.pdf"), fig3a, width = 5.5, height = 8.5, device = cairo_pdf)
+ggsave(file.path(fig_root, "figure3b_tools.pdf"), fig3b, width = 3.0, height = 8.5, device = cairo_pdf)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 4 – CN error (appendix, full width) — boxplots per cn_type
 # ══════════════════════════════════════════════════════════════════════════════
+CN_TYPE_LEVELS <- c("Mode", "Median", "Mean", "HMMcopy")
+CN_TYPE_COLORS <- c(Mean = "#E76F51", Median = "#2A9D8F", Mode = "#457B9D", HMMcopy = "#E9C46A")
+
 f4_dat <- cn_eval |>
   pivot_longer(c(hamming_dist_avg, s2_dist_avg),
                names_to = "error_type", values_to = "value") |>
@@ -283,15 +296,17 @@ f4_dat <- cn_eval |>
            levels = c("hamming_dist_avg","s2_dist_avg"),
            labels = c("Avg. Hamming Distance","Avg. S² Distance")),
          n_cells = factor(n_cells),
-         cn_type = str_to_title(cn_type))
+         cn_type = recode(cn_type,
+           mode = "Mode", median = "Median", mean = "Mean", hmmcopy = "HMMcopy"),
+         cn_type = factor(cn_type, levels = CN_TYPE_LEVELS))
 
 fig4 <- ggplot(f4_dat, aes(x = n_cells, y = value,
                             fill = cn_type, colour = cn_type)) +
   geom_boxplot(alpha = 0.35, linewidth = 0.4, outlier.size = 0.7,
                position = position_dodge(0.75)) +
   facet_wrap(~ error_type, scales = "free_y", nrow = 1) +
-  scale_fill_manual(values   = c(Mean = "#E76F51", Median = "#2A9D8F", Mode = "#457B9D")) +
-  scale_colour_manual(values = c(Mean = "#E76F51", Median = "#2A9D8F", Mode = "#457B9D")) +
+  scale_fill_manual(values   = CN_TYPE_COLORS) +
+  scale_colour_manual(values = CN_TYPE_COLORS) +
   labs(x = "Number of Cells", y = "Error", fill = "CN type", colour = "CN type") +
   theme_paper()
 
@@ -362,7 +377,8 @@ f6_dat <- real10x |>
   pivot_longer(all_of(f6_metrics), names_to = "metric", values_to = "value") |>
   mutate(metric = factor(metric,
            levels = c("ParsimonyScore","F1Score"),
-           labels = c("Parsimony Score","F1 Score")))
+           labels = c("Parsimony Score","F1 Score")),
+         metric = droplevels(metric))
 
 # center parsimony by per-sample mean; keep F1 raw
 f6_dat <- f6_dat |>
@@ -388,7 +404,8 @@ f6_sig_rows <- lapply(unique(as.character(f6_dat$metric)), function(mt) {
 }) |> bind_rows()
 
 f6_ymax <- f6_dat |> group_by(metric) |>
-  summarise(ymax = max(value_plot, na.rm = TRUE), .groups = "drop")
+  summarise(ymax = max(value_plot, na.rm = TRUE), .groups = "drop") |>
+  mutate(metric = as.character(metric))
 
 # x positions: DLCA-NJ=1, NJ=2 (dodged: SCONCE2 left, MEDICC2 right)
 # dodge offset ≈ 0.2 within each method position
@@ -442,15 +459,16 @@ ggsave(file.path(fig_root, "figure6_real10x.pdf"), fig6, width = 3, height = fig
 # ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 7 – Full comparison: all n, all λ, all distances (appendix)
 # ══════════════════════════════════════════════════════════════════════════════
-METRICS_7     <- c("rf_distance","quartet_distance","transfer_distance","triplet_distance")
-METRIC_LABS_7 <- c(rf_distance       = "RF Distance",
-                   quartet_distance  = "Quartet Distance",
-                   transfer_distance = "Transfer Distance",
-                   triplet_distance  = "Triplet Distance")
+METRICS_7     <- c("rf_distance","quartet_distance","transfer_distance","triplet_distance","rootsplit_distance")
+METRIC_LABS_7 <- c(rf_distance        = "RF Distance",
+                   quartet_distance   = "Quartet Distance",
+                   transfer_distance  = "Transfer Distance",
+                   triplet_distance   = "Triplet Distance",
+                   rootsplit_distance = "Root-split Distance")
 
 f7_dat <- read_csv(STATS_NEW, show_col_types = FALSE, na = c("","NA","None")) |>
   recode_stats() |>
-  filter(as.character(n_cells) %in% c("50","100"),
+  filter(as.character(n_cells) %in% plot_n,
          as.character(seq_error) == "0.02",
          tree_method %in% ALL_TREE_LEVELS) |>
   pivot_longer(all_of(METRICS_7), names_to = "metric", values_to = "value") |>
@@ -458,9 +476,7 @@ f7_dat <- read_csv(STATS_NEW, show_col_types = FALSE, na = c("","NA","None")) |>
     metric      = factor(metric, levels = METRICS_7, labels = unname(METRIC_LABS_7)),
     dist_method = factor(dist_method, levels = c("SCONCE2","MEDICC2")),
     lamda       = paste0("λ=", lamda),
-    col_label   = factor(paste0("N=",n_cells, ", ", lamda),
-                         levels = c("N=50, λ=2","N=50, λ=5",
-                                    "N=100, λ=2","N=100, λ=5"))
+    col_label   = factor(paste0("N=",n_cells, ", ", lamda))
   )
 
 fig7 <- ggplot(f7_dat, aes(x = tree_method, y = value,
@@ -490,9 +506,10 @@ ggsave(file.path(fig_root, "figure7_full_comparison.pdf"), fig7,
 if (file.exists(STATS_NEW)) {
   recode_stats_se <- function(df) {
     df |> mutate(
-      tree_method = recode(tree_method, nj = "NJ", snj = "SNJ", rnj = "DLCA-NJ",
+      tree_method = recode(tree_method, nj = "NJ", snj = "SNJ",
+                            rnj = "DLCA-NJ", dlca_nj = "DLCA-NJ",
                             anj = "ANJ", fastme = "FastME", srnj = "SRNJ",
-                            srnj1 = "SRNJ1", srnjmaxlca = "SRNJ*"),
+                            srnj1 = "SRNJ1", srnjmaxlca = "SRNJ*", srnj_maxlca = "SRNJ*"),
       dist_method = recode(dist_method, sconce2 = "SCONCE2", med2 = "MEDICC2"),
       n_cells     = factor(n_cells),
       seq_error   = factor(seq_error, levels = c("0.02","0.04"),
@@ -505,11 +522,12 @@ if (file.exists(STATS_NEW)) {
     mutate(seq_error = as.character(seq_error)) |>
     recode_stats_se()
 
-  METRICS_8     <- c("rf_distance","quartet_distance","transfer_distance","triplet_distance")
-  METRIC_LABS_8 <- c(rf_distance       = "RF Distance",
-                     quartet_distance  = "Quartet Distance",
-                     transfer_distance = "Transfer Distance",
-                     triplet_distance  = "Triplet Distance")
+  METRICS_8     <- c("rf_distance","quartet_distance","transfer_distance","triplet_distance","rootsplit_distance")
+  METRIC_LABS_8 <- c(rf_distance        = "RF Distance",
+                     quartet_distance   = "Quartet Distance",
+                     transfer_distance  = "Transfer Distance",
+                     triplet_distance   = "Triplet Distance",
+                     rootsplit_distance = "Root-split Distance")
 
   F8_LAMBDA <- 5   # fix λ=5 for seq-error comparison
   f8_n_max  <- as.character(max(as.integer(as.character(unique(stats_se$n_cells))), na.rm = TRUE))
@@ -675,6 +693,83 @@ if (file.exists(ORT_METRICS_CSV)) {
          device = cairo_pdf)
 } else {
   message("Skipping Figure 9: ", ORT_METRICS_CSV, " not found")
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FIGURE 10 – MEDICC2 sensitivity to CN input quality
+# Requires stats_cn_sconce2.csv from a second run with CN_SOURCE=sconce2.
+# Override path with env var STATS_K7_SCONCE2_CN.
+# Skipped gracefully when the file is absent.
+# ══════════════════════════════════════════════════════════════════════════════
+STATS_K7_SCONCE2_CN <- Sys.getenv("STATS_K7_SCONCE2_CN",
+  unset = "/proj/sc_ml/users/x_vitza/srnj_results/srnj_sconce2_K7/stats_cn_sconce2.csv")
+
+if (file.exists(STATS_K7_SCONCE2_CN)) {
+
+  # MEDICC2 with HMMcopy CN (existing run)
+  med2_hmm <- read_csv(STATS_NEW, show_col_types = FALSE, na = c("","NA","None")) |>
+    recode_stats() |>
+    filter(as.character(seq_error) == "0.02", dist_method == "MEDICC2")
+
+  # MEDICC2 with SCONCE2 CN (new run)
+  med2_sc2 <- read_csv(STATS_K7_SCONCE2_CN, show_col_types = FALSE, na = c("","NA","None")) |>
+    recode_stats() |>
+    filter(as.character(seq_error) == "0.02", dist_method == "MEDICC2")
+
+  METRICS_10   <- c("rf_distance", "quartet_distance", "transfer_distance", "rootsplit_distance")
+  METRIC_LABS_10 <- c(rf_distance        = "RF Distance",
+                      quartet_distance   = "Quartet Distance",
+                      transfer_distance  = "Transfer Distance",
+                      rootsplit_distance = "Root-split Distance")
+
+  # ── 10b: three-way boxplot (N=100, λ=5)
+  # Shows SCONCE2 pairwise as baseline, then the two MEDICC2 conditions.
+  sc2_ref <- read_csv(STATS_NEW, show_col_types = FALSE, na = c("","NA","None")) |>
+    recode_stats() |>
+    filter(as.character(seq_error) == "0.02", dist_method == "SCONCE2")
+
+  COND_LEVELS <- c("SCONCE2\n(pairwise)", "MEDICC2\n+ SCONCE2 CN", "MEDICC2\n+ HMMcopy CN")
+  COND_COLORS <- c("SCONCE2\n(pairwise)"    = "grey40",
+                   "MEDICC2\n+ SCONCE2 CN" = "#457B9D",
+                   "MEDICC2\n+ HMMcopy CN" = "#80B918")
+  COND_ALPHA  <- c("SCONCE2\n(pairwise)"   = 0.9,
+                   "MEDICC2\n+ SCONCE2 CN" = 0.7,
+                   "MEDICC2\n+ HMMcopy CN" = 0.4)
+
+  f10b_n <- as.character(max(as.integer(as.character(unique(med2_hmm$n_cells))), na.rm = TRUE))
+
+  three_way <- bind_rows(
+    sc2_ref  |> mutate(condition = "SCONCE2\n(pairwise)"),
+    med2_sc2 |> mutate(condition = "MEDICC2\n+ SCONCE2 CN"),
+    med2_hmm |> mutate(condition = "MEDICC2\n+ HMMcopy CN")
+  ) |>
+    filter(tree_method %in% ALL_TREE_LEVELS,
+           n_cells == f10b_n, lamda == 5) |>
+    pivot_longer(all_of(METRICS_10), names_to = "metric", values_to = "value") |>
+    mutate(metric    = factor(METRIC_LABS_10[metric], levels = unname(METRIC_LABS_10)),
+           condition = factor(condition, levels = COND_LEVELS))
+
+  fig10b <- ggplot(three_way,
+                   aes(x = tree_method, y = value,
+                       fill = tree_method, colour = condition, alpha = condition)) +
+    geom_boxplot(linewidth = 0.35, outlier.shape = NA,
+                 position = position_dodge2(width = 0.9, preserve = "single")) +
+    facet_grid(metric ~ ., scales = "free_y") +
+    scale_fill_manual(values   = ALL_COLORS, guide = "none") +
+    scale_colour_manual(values = COND_COLORS, name = "Condition") +
+    scale_alpha_manual(values  = COND_ALPHA,  name = "Condition") +
+    labs(x = NULL, y = "Tree Distance",
+         title = paste0("N=", f10b_n, ", λ=5")) +
+    guides(colour = guide_legend(nrow = 3),
+           alpha  = guide_legend(nrow = 3)) +
+    theme_paper() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 6))
+
+  ggsave(file.path(fig_root, "figure10b_medicc2_cn_threeway.pdf"), fig10b,
+         width = 3, height = 6, device = cairo_pdf)
+
+} else {
+  message("Skipping Figure 10: STATS_K7_SCONCE2_CN not found at ", STATS_K7_SCONCE2_CN)
 }
 
 message("All figures written.")

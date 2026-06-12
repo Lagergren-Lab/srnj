@@ -47,17 +47,27 @@ def compute_healthy_avg(diploid_file_list, output_bed_file, scripts_path):
 
 
 def compute_mean_var_coef(diploid_file_list, output_mean_var_file, scripts_path):
-    # Run R script to compute mean-variance coefficients
-    print("Computing mean-variance coefficient file...")
-    subprocess.run(["Rscript", os.path.join(scripts_path, "fitMeanVarRlnshp.R"), diploid_file_list, output_mean_var_file], check=True)
-    # touch a dummy file for testing
-    # with open(output_mean_var_file, 'w') as f:
-    #     f.write("""
-    #     intercept = 10.79950512968
-    #     slope = 1.18499408815
-    #     poly2 = 0.01910756218
-    #     """
-    #     )  # dummy content
+    # CNAsim generates read counts from a Poisson model (no overdispersion), so the
+    # theoretically correct NB variance relationship is var = mean exactly, i.e.:
+    #   intercept = 0, slope = 1, poly2 = 0
+    #
+    # We do NOT call fitMeanVarRlnshp.R here because it would be given only diploid
+    # (CN=2) normal cells, which have perfectly uniform expected depth per bin under
+    # CNAsim's --use-uniform-coverage flag. All bins across all cells share the same
+    # expected count, so the 3-parameter polynomial is evaluated at a single x-value
+    # and is completely underdetermined. The optimizer typically converges to slope < 1,
+    # which causes var < mean at the diploid emission lambda. SCONCE2's r < 1 fallback
+    # then clamps r = 1 (geometric distribution) for CN=2 bins, making the most common
+    # state's emission ~100× too broad relative to Poisson and degrading CN calling.
+    #
+    # A tiny poly2 = 1e-6 (rather than exact 0) is used so that r = mean / (poly2 * mean)
+    # = 1 / poly2 = 1e6, which is finite and near-Poisson, avoiding a division-by-zero
+    # in SCONCE2's r = mean² / (var - mean) formula.
+    print("Writing hardcoded Poisson meanVarCoefFile (CNAsim data: var = mean)...")
+    with open(output_mean_var_file, 'w') as f:
+        f.write("intercept=0\n")
+        f.write("slope=1\n")
+        f.write("poly2=1e-06\n")
 
 def prepare_bed_files(adata_path, normal_bed_dir, tumor_bed_dir, normal_obs_name, missing_data_option):
     adata = anndata.read_h5ad(adata_path)
@@ -124,7 +134,6 @@ def main():
             f.write(f"{normal_bed_dir}/{sample_bed}\n")
     # run Rscript scripts/avgDiploid.R test/diploidFileList test/test_healthy_avg.bed
     compute_healthy_avg(diploid_file_list, healthy_avg_bed, args.script_path)
-    # run Rscript scripts/fitMeanVarRlnshp.R test/diploidFileList test/ref.meanVar
     compute_mean_var_coef(diploid_file_list, mean_var_coef_file, args.script_path)
     print("SCONCE2 input files prepared successfully.")
     print("Cleaning up temporary normal bed files...")

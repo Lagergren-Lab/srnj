@@ -8,6 +8,9 @@ REPEATS: 20
 N_CELLS: [20, 50, 100]
 SCONCE2_K: 7
 SEQ_ERROR: [0.02, 0.04]
+# Sequencing coverage passed to CNAsim --coverage. Default CNAsim value is 0.1;
+# lower values make HMMcopy more realistic (less signal) but slow SCONCE2 less.
+COVERAGE: 0.02
 
 # CN source fed into MEDICC2: "hmmcopy" (default) or "sconce2"
 # Switch by editing this line, or override on the command line:
